@@ -135,6 +135,44 @@ async function resolveTaskAccounts(values = [], label = 'userId') {
   return [...new Map(resolved.map((item) => [String(item._id), item])).values()];
 }
 
+async function assertAssignableAccounts(accountRefs = [], label = 'assigneeId') {
+  const refs = Array.isArray(accountRefs) ? accountRefs : [];
+  if (!refs.length) return refs;
+
+  const userIds = refs.filter((ref) => ref.accountType !== 'admin').map((ref) => ref._id);
+  const adminIds = refs.filter((ref) => ref.accountType === 'admin').map((ref) => ref._id);
+  const [activeUsers, activeAdmins] = await Promise.all([
+    userIds.length
+      ? CoreUser.find({ _id: { $in: userIds }, isDeleted: false, isActive: true }, { _id: 1 }).lean()
+      : [],
+    adminIds.length
+      ? AccountAdmin.find({ _id: { $in: adminIds }, isDeleted: false, isActive: true }, { _id: 1 }).lean()
+      : [],
+  ]);
+
+  const activeUserIds = new Set(activeUsers.map((user) => String(user._id)));
+  const activeAdminIds = new Set(activeAdmins.map((admin) => String(admin._id)));
+  const inactive = refs.find((ref) => (
+    ref.accountType === 'admin'
+      ? !activeAdminIds.has(String(ref._id))
+      : !activeUserIds.has(String(ref._id))
+  ));
+
+  if (inactive) {
+    throw serviceError(`Invalid ${label}: user is inactive or unavailable`, 400);
+  }
+
+  return refs;
+}
+
+function logAssignmentFailure(context, err) {
+  console.error('[task-assignment] failed', {
+    ...context,
+    status: err?.status || 500,
+    message: err?.message || String(err),
+  });
+}
+
 function canManageProjectTasks(auth = {}) {
   const permissions = auth.permissions || [];
   const roles = (auth.roles || []).map((role) => String(role).toUpperCase());
@@ -243,19 +281,25 @@ async function getUserDirectory(userIds = []) {
   return directory;
 }
 
-async function enrichTaskPayload(taskLike) {
-  if (!taskLike) return taskLike;
-  const task = taskLike.toObject ? taskLike.toObject() : { ...taskLike };
-  const userIds = new Set([
+function collectTaskUserIds(taskLike, target = new Set()) {
+  if (!taskLike) return target;
+  const task = taskLike.toObject ? taskLike.toObject() : taskLike;
+  [
     task.createdBy,
     task.completedBy,
     ...(task.assignees || []).map((a) => a?.userId),
     ...(task.comments || []).map((c) => c?.userId || c?.user_id || c?.createdBy),
     ...(task.logs || []).map((l) => l?.performedBy || l?.userId || l?.triggeredBy),
-  ].filter(Boolean).map(String));
-  const directory = await getUserDirectory(Array.from(userIds));
+  ].filter(Boolean).forEach((id) => target.add(String(id)));
+  return target;
+}
+
+function enrichTaskWithDirectory(taskLike, directory = {}) {
+  if (!taskLike) return taskLike;
+  const task = taskLike.toObject ? taskLike.toObject() : { ...taskLike };
 
   task.createdByName = directory[String(task.createdBy)]?.name || '';
+  task.createdByUserId = directory[String(task.createdBy)]?.id || task.createdBy;
   task.assigneeIds = (task.assignees || [])
     .map((assignee) => directory[String(assignee?.userId)]?.id || assignee?.userId)
     .filter(Boolean)
@@ -292,6 +336,19 @@ async function enrichTaskPayload(taskLike) {
     };
   });
   return task;
+}
+
+async function enrichTaskPayload(taskLike) {
+  const userIds = collectTaskUserIds(taskLike);
+  const directory = await getUserDirectory(Array.from(userIds));
+  return enrichTaskWithDirectory(taskLike, directory);
+}
+
+async function enrichTaskPayloads(taskLikes = []) {
+  const userIds = new Set();
+  taskLikes.forEach((task) => collectTaskUserIds(task, userIds));
+  const directory = await getUserDirectory(Array.from(userIds));
+  return taskLikes.map((task) => enrichTaskWithDirectory(task, directory));
 }
 
 async function notifyTaskParticipants(task, actorUserId, options) {
@@ -384,9 +441,39 @@ async function findOrCreateUserProjectNode(userId, sourceNode, projectRef) {
   return node;
 }
 
+async function findOrCreateSharedWithMeNode(userId) {
+  const user = await CoreUser.findOne({ _id: userId }, { legacyId: 1 }).lean();
+  const node = await WorkspaceNode.findOneAndUpdate(
+    { userId, type: 'folder', name: 'Assigned to Me', isUserCreated: false, deletedAt: null },
+    {
+      $setOnInsert: {
+        userId,
+        legacyUserId: user?.legacyId || null,
+        name: 'Assigned to Me',
+        type: 'folder',
+        depth: 0,
+        parentId: null,
+        rootProjectId: null,
+        projectId: null,
+        isUserCreated: false,
+        icon: 'ri-checkbox-line',
+        color: '#10B981',
+        order: 0,
+      },
+      $set: { deletedAt: null },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  await ensureInboxExists(userId, node._id);
+  return node.toObject ? node.toObject() : node;
+}
+
 async function resolveUserNodeForTask(userId, sourceNode) {
   const projectRef = await resolveProjectRefForNode(sourceNode);
-  return findOrCreateUserProjectNode(userId, sourceNode, projectRef);
+  if (projectRef.sourceId) return findOrCreateUserProjectNode(userId, sourceNode, projectRef);
+  if (sameId(sourceNode.userId, userId)) return sourceNode;
+  return findOrCreateSharedWithMeNode(userId);
 }
 
 async function nextPlacementOrder(userId, listId) {
@@ -394,9 +481,24 @@ async function nextPlacementOrder(userId, listId) {
   return latest ? Number(latest.order || 0) + 1024 : 1024;
 }
 
-async function ensureUserPlacement(task, userId, sourceNode, preferredNode = null) {
+async function resolvePlacementList(userId, nodeId, requestedListId = null) {
+  if (requestedListId) {
+    const list = await List.findOne({
+      _id: requestedListId,
+      userId,
+      workspaceNodeId: nodeId,
+      isArchived: false,
+    }).lean();
+    if (!list) throw serviceError('Selected list is not available for this board', 400);
+    return list;
+  }
+
+  return ensureInboxExists(userId, nodeId);
+}
+
+async function ensureUserPlacement(task, userId, sourceNode, preferredNode = null, requestedListId = null) {
   const targetNode = preferredNode || await resolveUserNodeForTask(userId, sourceNode);
-  const inbox = await ensureInboxExists(userId, targetNode._id);
+  const targetList = await resolvePlacementList(userId, targetNode._id, requestedListId);
   const existing = await TaskPlacement.findOne({ taskId: task._id, userId });
 
   if (existing) {
@@ -407,11 +509,11 @@ async function ensureUserPlacement(task, userId, sourceNode, preferredNode = nul
       isArchived: false,
     }).lean();
 
-    if (sameId(existing.workspaceNodeId, targetNode._id) && existingList) return existing.toObject();
+    if (sameId(existing.workspaceNodeId, targetNode._id) && existingList && !requestedListId) return existing.toObject();
 
     existing.workspaceNodeId = targetNode._id;
-    existing.listId = inbox._id;
-    existing.order = await nextPlacementOrder(userId, inbox._id);
+    existing.listId = targetList._id;
+    existing.order = await nextPlacementOrder(userId, targetList._id);
     existing.placedAt = new Date();
     await existing.save();
     return existing.toObject();
@@ -421,15 +523,15 @@ async function ensureUserPlacement(task, userId, sourceNode, preferredNode = nul
     taskId: task._id,
     userId,
     workspaceNodeId: targetNode._id,
-    listId: inbox._id,
-    order: await nextPlacementOrder(userId, inbox._id),
+    listId: targetList._id,
+    order: await nextPlacementOrder(userId, targetList._id),
   });
 
   return placement.toObject();
 }
 
 async function createTask(actorUserId, workspaceNodeId, data, auth = {}) {
-  const { title, description, tags, priority, dueDate, startDate, assigneeIds = [] } = data;
+  const { title, description, tags, priority, dueDate, startDate, assigneeIds = [], listId = null } = data;
 
   if (!title || !title.trim()) throw serviceError('title is required');
 
@@ -438,11 +540,15 @@ async function createTask(actorUserId, workspaceNodeId, data, auth = {}) {
 
   const projectRef = await resolveProjectRefForNode(node);
   const uniqueAssigneeRefs = await resolveTaskAccounts(assigneeIds, 'assigneeId');
+  await assertAssignableAccounts(uniqueAssigneeRefs, 'assigneeId');
   const uniqueAssigneeIds = uniqueAssigneeRefs.map((assignee) => assignee._id);
   let project = null;
 
   if (projectRef.sourceId) {
     project = await assertProjectCanAcceptTasks(actorUserId, projectRef.sourceId, uniqueAssigneeRefs, auth);
+  }
+  if (listId) {
+    await resolvePlacementList(actorUserId, node._id, listId);
   }
 
   const now = new Date();
@@ -453,6 +559,8 @@ async function createTask(actorUserId, workspaceNodeId, data, auth = {}) {
   const task = await Task.create({
     workspaceNodeId: node._id,
     workspaceNodeType: node.type,
+    ownerUserId: node.userId || actorUserId,
+    workspaceOwnerId: node.userId || actorUserId,
     projectId: project?._id || node.projectId || null,
     projectRef: { sourceId: projectRef.sourceId, sourceType: projectRef.sourceType || 'mongodb' },
     title: title.trim(),
@@ -463,13 +571,15 @@ async function createTask(actorUserId, workspaceNodeId, data, auth = {}) {
     startDate: startDate || null,
     createdBy: actorUserId,
     assignees,
+    watchers: [],
+    visibility: projectRef.sourceId ? 'project' : (uniqueAssigneeIds.some((id) => !sameId(id, actorUserId)) ? 'shared' : 'private'),
     logs: [buildLogEntry('created', actorUserId, { title: title.trim() })],
   });
 
   const placementUserIds = [...new Set([String(actorUserId), ...uniqueAssigneeIds])];
 
   for (const userId of placementUserIds) {
-    await ensureUserPlacement(task, userId, node);
+    await ensureUserPlacement(task, userId, node, null, sameId(userId, actorUserId) ? listId : null);
   }
 
   for (const userId of uniqueAssigneeIds) {
@@ -504,19 +614,16 @@ async function getAssignableUsersForNode(actorUserId, workspaceNodeId, auth = {}
   if (!node) throw serviceError('Workspace not found', 404);
 
   const projectRef = await resolveProjectRefForNode(node);
-  const canManage = canManageProjectTasks(auth);
   const users = [];
 
   if (projectRef.sourceId) {
     await syncProjectMembers(projectRef.sourceId);
     const members = await getProjectMembersRaw(projectRef.sourceId);
-    const allowedMemberIds = canManage
-      ? members.map((member) => member.userId)
-      : members.map((member) => member.userId).filter((userId) => sameId(userId, actorUserId));
+    const allowedMemberIds = members.map((member) => member.userId);
 
     if (allowedMemberIds.length) {
       const memberUsers = await CoreUser.find(
-        { _id: { $in: allowedMemberIds }, isDeleted: false },
+        { _id: { $in: allowedMemberIds }, isDeleted: false, isActive: true },
         { _id: 1, legacyId: 1, firstName: 1, lastName: 1, userName: 1, email: 1 }
       ).lean();
       users.push(...memberUsers.map((user) => ({
@@ -526,14 +633,17 @@ async function getAssignableUsersForNode(actorUserId, workspaceNodeId, auth = {}
         email: user.email || '',
       })));
     }
-  } else if (!auth.accountType || auth.accountType !== 'admin') {
-    const actor = await CoreUser.findOne(
-      { _id: actorUserId, isDeleted: false },
+  } else {
+    const activeUsers = await CoreUser.find(
+      { isDeleted: false, isActive: true },
       { _id: 1, legacyId: 1, firstName: 1, lastName: 1, userName: 1, email: 1 }
     ).lean();
-    if (actor) {
-      users.push({ id: String(actor.legacyId), accountType: 'user', name: userDisplayName(actor), email: actor.email || '' });
-    }
+    users.push(...activeUsers.map((user) => ({
+      id: String(user.legacyId),
+      accountType: 'user',
+      name: userDisplayName(user),
+      email: user.email || '',
+    })));
   }
 
   const admins = await AccountAdmin.find(
@@ -559,6 +669,56 @@ async function getTasksForNode(workspaceNodeId, filters = {}) {
   return Task.find(query).lean();
 }
 
+async function getWorkspaceTaskSummary(actorUserId, auth = {}) {
+  const isAdmin = canManageProjectTasks(auth);
+  const taskQuery = { status: { $ne: 'archived' } };
+
+  if (!isAdmin) {
+    taskQuery.$or = [
+      { createdBy: actorUserId },
+      { 'assignees.userId': actorUserId },
+      { workspaceOwnerId: actorUserId },
+      { ownerUserId: actorUserId },
+    ];
+  }
+
+  const tasks = await Task.find(taskQuery, {
+    title: 1,
+    status: 1,
+    priority: 1,
+    dueDate: 1,
+    workspaceNodeId: 1,
+    createdBy: 1,
+    assignees: 1,
+  }).lean();
+
+  const userIds = new Set();
+  tasks.forEach((task) => {
+    if (task.createdBy) userIds.add(String(task.createdBy));
+    (task.assignees || []).forEach((assignee) => {
+      if (assignee?.userId) userIds.add(String(assignee.userId));
+    });
+  });
+  const directory = await getUserDirectory(Array.from(userIds));
+
+  return tasks.map((task) => ({
+    _id: String(task._id),
+    id: String(task._id),
+    title: task.title || 'Untitled Task',
+    status: task.status,
+    isCompleted: task.status === 'completed',
+    priority: task.priority || 'none',
+    dueDate: task.dueDate || null,
+    workspaceNodeId: task.workspaceNodeId ? String(task.workspaceNodeId) : '',
+    createdBy: directory[String(task.createdBy)]?.id || task.createdBy,
+    createdByUserId: directory[String(task.createdBy)]?.id || task.createdBy,
+    assigneeIds: (task.assignees || [])
+      .map((assignee) => directory[String(assignee?.userId)]?.id || assignee?.userId)
+      .filter(Boolean)
+      .map(String),
+  }));
+}
+
 async function getUserTasksInNode(userId, workspaceNodeId, auth = {}) {
   const node = await WorkspaceNode.findOne({ _id: workspaceNodeId, userId, deletedAt: null }).lean();
   if (!node) throw serviceError('Workspace not found', 404);
@@ -579,13 +739,19 @@ async function getUserTasksInNode(userId, workspaceNodeId, auth = {}) {
       ],
     });
   } else {
-    filters.push({ workspaceNodeId });
+    const placementTaskIds = await TaskPlacement.distinct('taskId', { userId, workspaceNodeId });
+    filters.push({
+      $or: [
+        { workspaceNodeId },
+        ...(placementTaskIds.length ? [{ _id: { $in: placementTaskIds } }] : []),
+      ],
+    });
   }
   if (shouldScopeToOwnTasks) filters.push({ $or: [{ 'assignees.userId': userId }, { createdBy: userId }] });
 
   const taskQuery = filters.length === 1 ? filters[0] : { $and: filters };
 
-  const tasks = await Task.find(taskQuery).lean();
+  const tasks = await Task.find(taskQuery, { logs: 0 }).lean();
   const taskIds = tasks.map((task) => task._id);
   const placements = await TaskPlacement.find({ userId, taskId: { $in: taskIds } }).lean();
   const placementMap = {};
@@ -610,7 +776,7 @@ async function getUserTasksInNode(userId, workspaceNodeId, auth = {}) {
     grouped[listId].sort((a, b) => Number(a.order || 0) - Number(b.order || 0));
   }
 
-  const enrichedTasks = await Promise.all(tasks.map((task) => enrichTaskPayload(task)));
+  const enrichedTasks = await enrichTaskPayloads(tasks);
   const enrichedById = enrichedTasks.reduce((acc, task) => { acc[String(task._id)] = task; return acc; }, {});
 
   const enrichedGrouped = {};
@@ -700,6 +866,50 @@ async function updateTask(actorUserId, taskId, data) {
 
   if (data.startDate !== undefined) task.startDate = data.startDate ? new Date(data.startDate) : null;
 
+  if (data.assigneeIds !== undefined) {
+    const nextAssigneeRefs = await resolveTaskAccounts(Array.isArray(data.assigneeIds) ? data.assigneeIds : [], 'assigneeId');
+    await assertAssignableAccounts(nextAssigneeRefs, 'assigneeId');
+    if (task.projectRef?.sourceId) {
+      await validateAssignees(nextAssigneeRefs, task.projectRef.sourceId);
+    }
+
+    const previousAssigneeIds = new Set((task.assignees || []).map((assignee) => String(assignee.userId)));
+    const nextAssigneeIds = nextAssigneeRefs.map((assignee) => assignee._id);
+    const nextAssigneeIdSet = new Set(nextAssigneeIds.map(String));
+    const addedAssigneeIds = nextAssigneeIds.filter((userId) => !previousAssigneeIds.has(String(userId)));
+    const removedAssigneeIds = [...previousAssigneeIds].filter((userId) => !nextAssigneeIdSet.has(String(userId)));
+    const sourceNode = await WorkspaceNode.findOne({ _id: task.workspaceNodeId, deletedAt: null }).lean();
+    if (!sourceNode) throw serviceError('Workspace not found', 404);
+
+    task.assignees = nextAssigneeIds.map((userId) => {
+      const existing = (task.assignees || []).find((assignee) => sameId(assignee.userId, userId));
+      return existing || { userId, assignedAt: new Date(), assignedBy: actorUserId };
+    });
+    task.visibility = task.projectRef?.sourceId ? 'project' : (nextAssigneeIds.some((id) => !sameId(id, task.createdBy)) ? 'shared' : 'private');
+
+    for (const userId of addedAssigneeIds) {
+      await ensureUserPlacement(task, userId, sourceNode);
+      task.logs.push(buildLogEntry('assigned', actorUserId, { assigneeId: userId, assignedBy: actorUserId, actorName }));
+      notificationJobs.push({
+        type: 'task_assigned',
+        socketEvent: 'task_assigned',
+        message: `You have been assigned to "${task.title}"`,
+        onlyUsers: [String(userId)],
+      });
+    }
+
+    for (const userId of removedAssigneeIds) {
+      await TaskPlacement.deleteOne({ taskId: task._id, userId });
+      task.logs.push(buildLogEntry('unassigned', actorUserId, { removedUserId: userId, removedBy: actorUserId, actorName }));
+      notificationJobs.push({
+        type: 'task_unassigned',
+        socketEvent: 'task_unassigned',
+        message: `You have been unassigned from "${task.title}"`,
+        onlyUsers: [String(userId)],
+      });
+    }
+  }
+
   if (data.checklist !== undefined) {
     task.checklist = Array.isArray(data.checklist)
       ? (await Promise.all(data.checklist.map((item, index) => normalizeChecklistItem(item, index, actorUserId)))).filter((item) => item.text)
@@ -731,47 +941,55 @@ async function updateTask(actorUserId, taskId, data) {
 }
 
 async function assignMember(actorUserId, taskId, targetUserId) {
-  const task = await Task.findOne({ _id: taskId });
-  if (!task) throw serviceError('Task not found', 404);
-  const targetAccount = await resolveTaskAccount(targetUserId);
-  const targetCoreUserId = targetAccount._id;
+  let task = null;
+  try {
+    task = await Task.findOne({ _id: taskId });
+    if (!task) throw serviceError('Task not found', 404);
+    const targetAccount = await resolveTaskAccount(targetUserId);
+    await assertAssignableAccounts([targetAccount], 'assigneeId');
+    const targetCoreUserId = targetAccount._id;
 
-  const alreadyAssigned = task.assignees.some((a) => String(a.userId) === String(targetCoreUserId));
-  if (alreadyAssigned) throw serviceError('User is already assigned to this task', 409);
+    const alreadyAssigned = task.assignees.some((a) => String(a.userId) === String(targetCoreUserId));
+    if (alreadyAssigned) throw serviceError('User is already assigned to this task', 409);
 
-  if (task.projectRef?.sourceId) {
-    await validateAssignees([targetAccount], task.projectRef.sourceId);
+    if (task.projectRef?.sourceId) {
+      await validateAssignees([targetAccount], task.projectRef.sourceId);
+    }
+
+    const userDirectory = await getUserDirectory([actorUserId, targetCoreUserId].map(String));
+    const actorName = userDirectory[String(actorUserId)]?.name || '';
+    const assigneeName = userDirectory[String(targetCoreUserId)]?.name || '';
+    task.assignees.push({ userId: targetCoreUserId, assignedAt: new Date(), assignedBy: actorUserId });
+    task.visibility = task.projectRef?.sourceId ? 'project' : 'shared';
+    task.logs.push(buildLogEntry('assigned', actorUserId, { assigneeId: targetCoreUserId, assignedBy: actorUserId, actorName, assigneeName }));
+    await task.save();
+
+    const sourceNode = await WorkspaceNode.findOne({ _id: task.workspaceNodeId, deletedAt: null }).lean();
+    if (!sourceNode) throw serviceError('Workspace not found', 404);
+
+    const targetNode = await resolveUserNodeForTask(targetCoreUserId, sourceNode);
+    await ensureUserPlacement(task, targetCoreUserId, sourceNode, targetNode);
+
+    if (String(targetCoreUserId) !== String(actorUserId)) {
+      await createNotification({
+        userId: targetCoreUserId,
+        type: 'task_assigned',
+        taskId: task._id,
+        taskTitle: task.title,
+        projectId: task.projectId || null,
+        workspaceNodeId: targetNode._id,
+        workspaceNodeName: targetNode.name,
+        triggeredBy: actorUserId,
+        triggeredByName: actorName,
+        message: `You have been assigned to "${task.title}"`,
+      });
+    }
+
+    return enrichTaskPayload(task);
+  } catch (err) {
+    logAssignmentFailure({ actorUserId, taskId, targetUserId, projectId: task?.projectRef?.sourceId || null }, err);
+    throw err;
   }
-
-  const userDirectory = await getUserDirectory([actorUserId, targetCoreUserId].map(String));
-  const actorName = userDirectory[String(actorUserId)]?.name || '';
-  const assigneeName = userDirectory[String(targetCoreUserId)]?.name || '';
-  task.assignees.push({ userId: targetCoreUserId, assignedAt: new Date(), assignedBy: actorUserId });
-  task.logs.push(buildLogEntry('assigned', actorUserId, { assigneeId: targetCoreUserId, assignedBy: actorUserId, actorName, assigneeName }));
-  await task.save();
-
-  const sourceNode = await WorkspaceNode.findOne({ _id: task.workspaceNodeId, deletedAt: null }).lean();
-  if (!sourceNode) throw serviceError('Workspace not found', 404);
-
-  const targetNode = await resolveUserNodeForTask(targetCoreUserId, sourceNode);
-  await ensureUserPlacement(task, targetCoreUserId, sourceNode, targetNode);
-
-  if (String(targetCoreUserId) !== String(actorUserId)) {
-    await createNotification({
-      userId: targetCoreUserId,
-      type: 'task_assigned',
-      taskId: task._id,
-      taskTitle: task.title,
-      projectId: task.projectId || null,
-      workspaceNodeId: targetNode._id,
-      workspaceNodeName: targetNode.name,
-      triggeredBy: actorUserId,
-      triggeredByName: actorName,
-      message: `You have been assigned to "${task.title}"`,
-    });
-  }
-
-  return enrichTaskPayload(task);
 }
 
 async function unassignMember(actorUserId, taskId, targetUserId) {
@@ -811,26 +1029,27 @@ async function unassignMember(actorUserId, taskId, targetUserId) {
 }
 
 async function moveTaskToList(userId, taskId, newListId, auth = {}) {
-  const list = await List.findOne({ _id: newListId, userId });
+  const list = await List.findOne({ _id: newListId, isArchived: false });
   if (!list) throw serviceError('List not found', 404);
+  const placementUserId = list.userId;
 
   const taskQuery = {
     _id: taskId,
     status: { $ne: 'archived' },
   };
-  if (!canManageProjectTasks(auth)) taskQuery.$or = [{ 'assignees.userId': userId }, { createdBy: userId }];
+  if (!canManageProjectTasks(auth)) taskQuery.$or = [{ 'assignees.userId': placementUserId }, { createdBy: placementUserId }];
 
   const task = await Task.findOne(taskQuery);
   if (!task) throw serviceError('Task not found', 404);
 
-  let placement = await TaskPlacement.findOne({ taskId, userId });
+  let placement = await TaskPlacement.findOne({ taskId, userId: placementUserId });
   if (!placement) {
     placement = await TaskPlacement.create({
       taskId,
-      userId,
+      userId: placementUserId,
       workspaceNodeId: list.workspaceNodeId,
       listId: list._id,
-      order: await nextPlacementOrder(userId, list._id),
+      order: await nextPlacementOrder(placementUserId, list._id),
     });
   }
 
@@ -853,10 +1072,10 @@ async function moveTaskToList(userId, taskId, newListId, auth = {}) {
   if (!isInitialCreatePlacement) {
     await Task.updateOne(
       { _id: taskId },
-      { $push: { logs: buildLogEntry('moved', userId, { userId, fromListId, toListId: list._id }) } }
+      { $push: { logs: buildLogEntry('moved', placementUserId, { userId: placementUserId, fromListId, toListId: list._id }) } }
     );
 
-    await notifyTaskParticipants(task.toObject(), userId, {
+    await notifyTaskParticipants(task.toObject(), placementUserId, {
       type: 'task_updated',
       socketEvent: 'task_moved',
       message: `"${task.title}" was moved`,
@@ -867,8 +1086,18 @@ async function moveTaskToList(userId, taskId, newListId, auth = {}) {
   return placement.toObject();
 }
 
-async function reorderTaskInList(userId, taskId, newOrder) {
-  const placement = await TaskPlacement.findOne({ taskId, userId });
+async function reorderTaskInList(userId, taskId, newOrder, listId = null) {
+  let placement = null;
+
+  if (listId) {
+    const list = await List.findOne({ _id: listId, isArchived: false }).lean();
+    if (!list) throw serviceError('List not found', 404);
+    placement = await TaskPlacement.findOne({ taskId, listId: list._id, userId: list.userId });
+  }
+
+  placement = placement
+    || await TaskPlacement.findOne({ taskId, userId })
+    || await TaskPlacement.findOne({ taskId }).sort({ placedAt: -1 });
   if (!placement) throw serviceError('Placement not found', 404);
   placement.order = newOrder;
   await placement.save();
@@ -922,6 +1151,7 @@ module.exports = {
   getTask,
   getAssignableUsersForNode,
   getTasksForNode,
+  getWorkspaceTaskSummary,
   getUserTasksInNode,
   getAdminViewOfUserBoard,
   updateTask,

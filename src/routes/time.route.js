@@ -20,6 +20,8 @@ router.post('/week/unsubmit', requirePermission('time.submit'), timeController.u
 
 router.get('/timer/active', requirePermission('time.view_own'), timeController.getActiveTimer);
 router.post('/timer/start', requirePermission('time.create'), timeController.startTimer);
+router.post('/timer/pause', requirePermission('time.create'), timeController.pauseTimer);
+router.post('/timer/resume', requirePermission('time.create'), timeController.resumeTimer);
 router.post('/timer/stop', requirePermission('time.create'), timeController.stopTimer);
 
 router.get('/team', requireAnyPermission(['time.view_team', 'time.view_all']), timeController.getTeam);

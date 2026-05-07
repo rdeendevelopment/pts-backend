@@ -180,9 +180,9 @@ async function createRefreshToken(accountType, account) {
 }
 
 async function buildAuthResponse(accountType, account, options = {}) {
-  const access = await loadAccess(accountType, account);
+  const access = await withMongoRetry('access loading', () => loadAccess(accountType, account));
   const accessToken = signAccessToken(accountType, account, access);
-  const refreshToken = options.includeRefresh === false ? null : await createRefreshToken(accountType, account);
+  const refreshToken = options.includeRefresh === false ? null : await withMongoRetry('refresh token creation', () => createRefreshToken(accountType, account));
   const user = buildUser(accountType, account, access.roles);
 
   const response = {
@@ -205,8 +205,34 @@ async function findAccountFromTokenPayload(payload) {
   return coreMongo.findAccountFromToken(accountType, id);
 }
 
+function isTransientMongoError(error) {
+  const name = String(error?.name || '');
+  const message = String(error?.message || '');
+  return name.includes('MongoNetworkError') ||
+    name.includes('MongoServerSelectionError') ||
+    message.includes('AggregateError') ||
+    message.includes('server selection') ||
+    message.includes('ECONNRESET') ||
+    message.includes('ETIMEDOUT');
+}
+
+async function withMongoRetry(label, fn) {
+  try {
+    return await fn();
+  } catch (error) {
+    if (!isTransientMongoError(error)) throw error;
+    console.warn(`[auth] transient MongoDB error during ${label}; retrying once`, {
+      name: error?.name,
+      message: error?.message,
+      cause: error?.cause?.message || error?.cause,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    return fn();
+  }
+}
+
 async function findLoginAccount(email) {
-  return coreMongo.findLoginAccount(email);
+  return withMongoRetry('login lookup', () => coreMongo.findLoginAccount(email));
 }
 
 module.exports = {

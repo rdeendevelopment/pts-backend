@@ -37,6 +37,14 @@ function startTimer(userId, data) {
   return timeRepo.startTimer(userId, data, budgetService);
 }
 
+function pauseTimer(userId) {
+  return timeRepo.pauseTimer(userId);
+}
+
+function resumeTimer(userId) {
+  return timeRepo.resumeTimer(userId);
+}
+
 function stopTimer(userId, data = {}) {
   return timeRepo.stopTimer(userId, data, budgetService);
 }
@@ -91,6 +99,8 @@ module.exports = {
   unsubmitWeek,
   getActiveTimer,
   startTimer,
+  pauseTimer,
+  resumeTimer,
   stopTimer,
   getTeamTimesheet,
   approveWeek,

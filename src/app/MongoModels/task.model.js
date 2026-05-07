@@ -85,6 +85,8 @@ const TaskSchema = new Schema(
   {
     workspaceNodeId:   { type: ObjId, required: true },
     workspaceNodeType: { type: String, enum: ['project', 'folder', 'subfolder'], required: true },
+    ownerUserId:       { type: ObjId, ref: 'CoreUser', default: null, index: true },
+    workspaceOwnerId:  { type: ObjId, ref: 'CoreUser', default: null, index: true },
     projectId:         { type: ObjId, ref: 'CoreProject', default: null },
     projectRef: {
       sourceId:   { type: Number, default: null, index: true },
@@ -103,6 +105,8 @@ const TaskSchema = new Schema(
     reminderDate:      { type: Date, default: null },
     createdBy:         { type: ObjId, ref: 'CoreUser', required: true },
     assignees:         { type: [AssigneeSchema], default: [] },
+    watchers:          { type: [ObjId], ref: 'CoreUser', default: [] },
+    visibility:        { type: String, enum: ['private', 'project', 'shared'], default: 'private', index: true },
     checklist:         { type: [ChecklistItemSchema], default: [] },
     attachments:       { type: [AttachmentSchema], default: [] },
     comments:          { type: [CommentSchema], default: [] },

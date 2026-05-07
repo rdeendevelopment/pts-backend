@@ -253,6 +253,8 @@ function serializeTimer(timer) {
     is_billable: row.isBillable,
     start_time: row.startTime,
     is_running: row.isRunning,
+    is_paused: row.isPaused,
+    paused_at: row.pausedAt,
     project_name: row.projectId?.title,
     activity_category_name: row.activityCategoryId?.name,
     budget_name: row.budgetId?.name,
@@ -464,7 +466,7 @@ async function unsubmitWeek(userId, dateInput) {
 }
 
 async function getActiveTimer(userId) {
-  const timer = await ActiveTimer.findOne({ userId, isRunning: true })
+  const timer = await ActiveTimer.findOne({ userId, $or: [{ isRunning: true }, { isPaused: true }] })
     .populate('projectId')
     .populate('activityCategoryId')
     .populate('budgetId')
@@ -474,7 +476,7 @@ async function getActiveTimer(userId) {
 }
 
 async function startTimer(userId, data, budgetService) {
-  if (await ActiveTimer.exists({ userId, isRunning: true })) throw serviceError('Timer already running', 409);
+  if (await ActiveTimer.exists({ userId, $or: [{ isRunning: true }, { isPaused: true }] })) throw serviceError('Timer already running', 409);
   const projectId = data.projectId || data.project_id;
   const activityCategoryId = data.activityCategoryId || data.activity_category_id;
   if (!projectId) throw serviceError('Project is required');
@@ -494,15 +496,40 @@ async function startTimer(userId, data, budgetService) {
     taskId: data.taskId || data.task_id || null,
     startTime: new Date(),
     isRunning: true,
+    isPaused: false,
+    pausedAt: null,
     isBillable: data.isBillable !== undefined ? Boolean(data.isBillable) : data.is_billable !== undefined ? Boolean(data.is_billable) : true,
   });
   return serializeTimer(await ActiveTimer.findOne({ _id: timer._id }).populate('projectId').populate('activityCategoryId').populate('budgetId').lean());
 }
 
-async function stopTimer(userId, data = {}, budgetService) {
+async function pauseTimer(userId) {
   const timer = await ActiveTimer.findOne({ userId, isRunning: true }).sort({ legacyId: -1 });
   if (!timer) throw serviceError('No active timer', 404);
-  const endTime = new Date();
+  timer.isRunning = false;
+  timer.isPaused = true;
+  timer.pausedAt = new Date();
+  await timer.save();
+  return serializeTimer(await ActiveTimer.findOne({ _id: timer._id }).populate('projectId').populate('activityCategoryId').populate('budgetId').lean());
+}
+
+async function resumeTimer(userId) {
+  const timer = await ActiveTimer.findOne({ userId, isPaused: true }).sort({ legacyId: -1 });
+  if (!timer) throw serviceError('No paused timer', 404);
+  const pausedAt = timer.pausedAt ? new Date(timer.pausedAt).getTime() : Date.now();
+  const pausedMs = Math.max(0, Date.now() - pausedAt);
+  timer.startTime = new Date(new Date(timer.startTime).getTime() + pausedMs);
+  timer.isRunning = true;
+  timer.isPaused = false;
+  timer.pausedAt = null;
+  await timer.save();
+  return serializeTimer(await ActiveTimer.findOne({ _id: timer._id }).populate('projectId').populate('activityCategoryId').populate('budgetId').lean());
+}
+
+async function stopTimer(userId, data = {}, budgetService) {
+  const timer = await ActiveTimer.findOne({ userId, $or: [{ isRunning: true }, { isPaused: true }] }).sort({ legacyId: -1 });
+  if (!timer) throw serviceError('No active timer', 404);
+  const endTime = timer.isPaused && timer.pausedAt ? new Date(timer.pausedAt) : new Date();
   const rawDuration = minutesBetween(timer.startTime, endTime);
   if (rawDuration > 16 * 60) {
     timer.isRunning = false;
@@ -535,6 +562,8 @@ async function stopTimer(userId, data = {}, budgetService) {
     isBillable: timer.isBillable,
   });
   timer.isRunning = false;
+  timer.isPaused = false;
+  timer.pausedAt = null;
   await timer.save();
   await recalculateWeek(week._id);
   await budgetService.recalculateBudget(timerBudget?.legacyId);
@@ -872,6 +901,8 @@ module.exports = {
   unsubmitWeek,
   getActiveTimer,
   startTimer,
+  pauseTimer,
+  resumeTimer,
   stopTimer,
   getTeamTimesheet,
   approveWeek,

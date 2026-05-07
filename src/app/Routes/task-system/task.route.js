@@ -6,7 +6,9 @@ const controller = require('../../Controllers/task-system/task.controller');
 router.use(userAuth);
 
 // /node/ routes registered first to prevent /:id swallowing the literal "node" segment
+router.get('/summary', controller.getTaskSummary);
 router.get('/node/:nodeId', controller.getTasksForNode);
+router.get('/node/:nodeId/overview', controller.getBoardOverview);
 router.get('/node/:nodeId/board', controller.getUserBoard);
 router.get('/node/:nodeId/assignees', controller.getAssignableUsers);
 router.post('/node/:nodeId', controller.createTask);

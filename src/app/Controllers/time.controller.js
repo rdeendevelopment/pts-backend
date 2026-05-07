@@ -139,6 +139,24 @@ exports.startTimer = async (req, res) => {
   }
 };
 
+exports.pauseTimer = async (req, res) => {
+  try {
+    const data = await timeService.pauseTimer(userId(req));
+    return res.json({ success: true, data });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
+exports.resumeTimer = async (req, res) => {
+  try {
+    const data = await timeService.resumeTimer(userId(req));
+    return res.json({ success: true, data });
+  } catch (error) {
+    return handleError(res, error);
+  }
+};
+
 exports.stopTimer = async (req, res) => {
   try {
     const data = await timeService.stopTimer(userId(req), req.body);

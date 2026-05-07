@@ -307,6 +307,8 @@ const ActiveTimerSchema = new Schema(
     activityCategoryId: { type: ObjId, ref: 'ActivityCategory', default: null },
     startTime:          { type: Date, required: true },
     isRunning:          { type: Boolean, default: true, index: true },
+    isPaused:           { type: Boolean, default: false, index: true },
+    pausedAt:           { type: Date, default: null },
     isBillable:         { type: Boolean, default: true },
   },
   { collection: 'active_timers', timestamps: true }

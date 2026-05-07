@@ -394,6 +394,7 @@ async function createAdmin(body) {
 }
 
 async function getAdminById(legacyId) {
+  await connectMongo();
   const admin = await AccountAdmin.findOne({ legacyId: Number(legacyId) }).lean();
   return serializeAdmin(admin);
 }
@@ -419,6 +420,7 @@ async function updateAdmin(legacyId, body = {}) {
 }
 
 async function findLoginAccount(identifier) {
+  await connectMongo();
   const value = String(identifier || '').trim();
   const admin = await AccountAdmin.findOne({ email: value.toLowerCase(), isDeleted: false }).lean();
   if (admin) return { accountType: 'admin', account: serializeAdmin(admin) };
@@ -430,6 +432,7 @@ async function findLoginAccount(identifier) {
 }
 
 async function findAccountFromToken(accountType, legacyId) {
+  await connectMongo();
   if (accountType === 'admin') {
     const admin = await AccountAdmin.findOne({ legacyId: Number(legacyId), isDeleted: false, isActive: true }).lean();
     return admin ? { accountType: 'admin', account: serializeAdmin(admin) } : null;
@@ -743,7 +746,7 @@ async function createRefreshToken(accountType, account, tokenHashValue, expiresA
     migratedAt: new Date(),
   };
   await RefreshToken.create(payload);
-  return { id: legacyId, user_id: payload.legacyUserId, user_type: userType, token_hash: tokenHashValue, expires_at: expiresAt };
+  return { id: legacyId, user_id: account.id, user_type: userType, token_hash: tokenHashValue, expires_at: expiresAt };
 }
 
 async function findValidRefreshToken(tokenHashValue) {
@@ -754,9 +757,16 @@ async function findValidRefreshToken(tokenHashValue) {
     expiresAt: { $gt: new Date() },
   }).lean();
   if (!token) return null;
+  const AccountModel = token.userType === 'admin' ? AccountAdmin : CoreUser;
+  const account = token.userId
+    ? await AccountModel.findOne({ _id: token.userId }, { legacyId: 1 }).lean()
+    : null;
+  const legacyUserId = token.legacyUserId || account?.legacyId;
+  if (!legacyUserId) return null;
+
   return {
     id: token.legacyId,
-    user_id: token.legacyUserId,
+    user_id: legacyUserId,
     user_type: token.userType,
     token_hash: token.tokenHash,
     expires_at: token.expiresAt,

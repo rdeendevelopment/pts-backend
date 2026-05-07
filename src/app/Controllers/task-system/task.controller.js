@@ -1,4 +1,5 @@
 const taskService = require('../../Services/task-system/task.service');
+const listService = require('../../Services/task-system/list.service');
 
 function actorId(req) {
   return req.auth?.user?._id || req.user?._id || req.auth?.user?.id || req.user?.id;
@@ -7,6 +8,15 @@ function actorId(req) {
 exports.getTasksForNode = async (req, res) => {
   try {
     const data = await taskService.getUserTasksInNode(actorId(req), req.params.nodeId, req.auth);
+    res.json({ success: true, data });
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, message: err.message });
+  }
+};
+
+exports.getTaskSummary = async (req, res) => {
+  try {
+    const data = await taskService.getWorkspaceTaskSummary(actorId(req), req.auth);
     res.json({ success: true, data });
   } catch (err) {
     res.status(err.status || 500).json({ success: false, message: err.message });
@@ -22,6 +32,24 @@ exports.getUserBoard = async (req, res) => {
     }
     const data = await taskService.getUserTasksInNode(actorId(req), req.params.nodeId, req.auth);
     res.json({ success: true, data });
+  } catch (err) {
+    res.status(err.status || 500).json({ success: false, message: err.message });
+  }
+};
+
+exports.getBoardOverview = async (req, res) => {
+  try {
+    const viewAsUserId = req.query.viewAsUserId;
+    const [lists, board] = await Promise.all([
+      listService.getListsForNode(actorId(req), req.params.nodeId, {
+        viewAsUserId,
+        auth: req.auth,
+      }),
+      viewAsUserId && taskService.canManageProjectTasks(req.auth)
+        ? taskService.getAdminViewOfUserBoard(actorId(req), req.params.nodeId, viewAsUserId, req.auth)
+        : taskService.getUserTasksInNode(actorId(req), req.params.nodeId, req.auth),
+    ]);
+    res.json({ success: true, data: { lists, board } });
   } catch (err) {
     res.status(err.status || 500).json({ success: false, message: err.message });
   }
@@ -50,6 +78,15 @@ exports.createTask = async (req, res) => {
     const data = await taskService.createTask(actorId(req), req.params.nodeId, req.body, req.auth);
     res.status(201).json({ success: true, data });
   } catch (err) {
+    if (req.body?.assigneeIds?.length) {
+      console.error('[task-assignment] create failed', {
+        actorUserId: actorId(req),
+        nodeId: req.params.nodeId,
+        assigneeIds: req.body.assigneeIds,
+        status: err.status || 500,
+        message: err.message,
+      });
+    }
     res.status(err.status || 500).json({ success: false, message: err.message });
   }
 };
@@ -59,6 +96,15 @@ exports.updateTask = async (req, res) => {
     const data = await taskService.updateTask(actorId(req), req.params.id, req.body);
     res.json({ success: true, data });
   } catch (err) {
+    if (req.body?.assigneeIds) {
+      console.error('[task-assignment] update failed', {
+        actorUserId: actorId(req),
+        taskId: req.params.id,
+        assigneeIds: req.body.assigneeIds,
+        status: err.status || 500,
+        message: err.message,
+      });
+    }
     res.status(err.status || 500).json({ success: false, message: err.message });
   }
 };
@@ -68,6 +114,13 @@ exports.assignMember = async (req, res) => {
     const data = await taskService.assignMember(actorId(req), req.params.id, req.body.userId);
     res.json({ success: true, data });
   } catch (err) {
+    console.error('[task-assignment] assign API failed', {
+      actorUserId: actorId(req),
+      taskId: req.params.id,
+      targetUserId: req.body?.userId,
+      status: err.status || 500,
+      message: err.message,
+    });
     res.status(err.status || 500).json({ success: false, message: err.message });
   }
 };
@@ -86,15 +139,30 @@ exports.moveTask = async (req, res) => {
     const data = await taskService.moveTaskToList(actorId(req), req.params.id, req.body.listId, req.auth);
     res.json({ success: true, data });
   } catch (err) {
+    console.error('[task-dnd] move failed', {
+      actorUserId: actorId(req),
+      taskId: req.params.id,
+      listId: req.body?.listId,
+      status: err.status || 500,
+      message: err.message,
+    });
     res.status(err.status || 500).json({ success: false, message: err.message });
   }
 };
 
 exports.reorderTask = async (req, res) => {
   try {
-    const data = await taskService.reorderTaskInList(actorId(req), req.params.id, req.body.order);
+    const data = await taskService.reorderTaskInList(actorId(req), req.params.id, req.body.order, req.body.listId);
     res.json({ success: true, data });
   } catch (err) {
+    console.error('[task-dnd] reorder failed', {
+      actorUserId: actorId(req),
+      taskId: req.params.id,
+      listId: req.body?.listId,
+      order: req.body?.order,
+      status: err.status || 500,
+      message: err.message,
+    });
     res.status(err.status || 500).json({ success: false, message: err.message });
   }
 };
