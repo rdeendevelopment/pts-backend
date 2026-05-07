@@ -1,0 +1,33 @@
+default:
+  app:
+    hostName: localhost
+    hostURL:
+    env: development
+    title: PTS-BACKEND
+    port: 3001
+    version: 1.0
+    timezone: 
+    timezoneOffset: +0:00
+
+  secret:
+    key: ""
+    expiresIn: ""
+    username: ""
+    password: ""
+
+development:
+  app:
+    env: development
+    port: 3001
+  mongodb:
+    uri: ""
+    db: "r"
+
+production:
+  app:
+    env: production
+    port: 3000
+  mongodb:
+    uri: ""
+    db: ""
+
