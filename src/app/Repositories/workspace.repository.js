@@ -167,6 +167,8 @@ async function createFolder(userId, data, auth = {}) {
 
   let depth = 0;
   let rootProjectId = null;
+  let projectId = null;
+  let projectRef = { sourceId: null, sourceType: 'mongodb' };
 
   if (parentId) {
     const parent = await WorkspaceNode.findOne({ _id: parentId, userId: user._id, deletedAt: null });
@@ -175,8 +177,13 @@ async function createFolder(userId, data, auth = {}) {
       err.status = 404;
       throw err;
     }
-    depth = parent.depth + 1;
+    depth = Number(parent.depth || 0) + 1;
     rootProjectId = parent.rootProjectId || parent._id;
+    projectId = parent.projectId || null;
+    projectRef = {
+      sourceId: parent.projectRef?.sourceId || null,
+      sourceType: parent.projectRef?.sourceType || 'mongodb',
+    };
   }
 
   const type = depth === 0 ? 'folder' : 'subfolder';
@@ -189,6 +196,8 @@ async function createFolder(userId, data, auth = {}) {
     type,
     parentId: parentId || null,
     rootProjectId,
+    projectId,
+    projectRef,
     depth,
     isUserCreated: true,
     icon: icon || null,
