@@ -5,6 +5,26 @@ function actorId(req) {
   return req.auth?.user?._id || req.user?._id || req.auth?.user?.id || req.user?.id;
 }
 
+function approxPayloadBytes(data) {
+  try {
+    return Buffer.byteLength(JSON.stringify(data));
+  } catch {
+    return 0;
+  }
+}
+
+function perfLog(requestId, route, req, startedAt, data, extra = {}) {
+  console.info('[task-perf]', {
+    requestId,
+    route,
+    userId: String(actorId(req) || ''),
+    durationMs: Date.now() - startedAt,
+    dbDurationMs: Date.now() - startedAt,
+    payloadBytes: approxPayloadBytes(data),
+    ...extra,
+  });
+}
+
 exports.getTasksForNode = async (req, res) => {
   try {
     const data = await taskService.getUserTasksInNode(actorId(req), req.params.nodeId, req.auth);
@@ -15,10 +35,20 @@ exports.getTasksForNode = async (req, res) => {
 };
 
 exports.getTaskSummary = async (req, res) => {
+  const startedAt = Date.now();
+  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   try {
-    const data = await taskService.getWorkspaceTaskSummary(actorId(req), req.auth);
+    const data = await taskService.getWorkspaceTaskSummary(actorId(req), req.auth, {
+      limit: req.query.limit,
+      viewAsUserId: taskService.canManageProjectTasks(req.auth) ? req.query.viewAsUserId : null,
+    });
+    perfLog(requestId, 'GET /task-system/tasks/summary', req, startedAt, data, {
+      viewAsUserId: req.query.viewAsUserId || null,
+      resultCount: Array.isArray(data) ? data.length : 0,
+    });
     res.json({ success: true, data });
   } catch (err) {
+    perfLog(requestId, 'GET /task-system/tasks/summary', req, startedAt, null, { error: err.message });
     res.status(err.status || 500).json({ success: false, message: err.message });
   }
 };
@@ -38,6 +68,8 @@ exports.getUserBoard = async (req, res) => {
 };
 
 exports.getBoardOverview = async (req, res) => {
+  const startedAt = Date.now();
+  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   try {
     const viewAsUserId = req.query.viewAsUserId;
     const [lists, board] = await Promise.all([
@@ -49,8 +81,18 @@ exports.getBoardOverview = async (req, res) => {
         ? taskService.getAdminViewOfUserBoard(actorId(req), req.params.nodeId, viewAsUserId, req.auth)
         : taskService.getUserTasksInNode(actorId(req), req.params.nodeId, req.auth),
     ]);
-    res.json({ success: true, data: { lists, board } });
+    const data = { lists, board };
+    perfLog(requestId, 'GET /task-system/tasks/node/:nodeId/overview', req, startedAt, data, {
+      nodeId: req.params.nodeId,
+      listCount: Array.isArray(lists) ? lists.length : 0,
+      taskCount: Object.values(board || {}).reduce((sum, tasks) => sum + (Array.isArray(tasks) ? tasks.length : 0), 0),
+    });
+    res.json({ success: true, data });
   } catch (err) {
+    perfLog(requestId, 'GET /task-system/tasks/node/:nodeId/overview', req, startedAt, null, {
+      nodeId: req.params.nodeId,
+      error: err.message,
+    });
     res.status(err.status || 500).json({ success: false, message: err.message });
   }
 };

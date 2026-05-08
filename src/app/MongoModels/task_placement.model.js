@@ -21,6 +21,8 @@ const TaskPlacementSchema = new Schema(
 TaskPlacementSchema.index({ taskId: 1, userId: 1 });
 TaskPlacementSchema.index({ userId: 1, listId: 1, order: 1 });
 TaskPlacementSchema.index({ userId: 1, workspaceNodeId: 1 });
+TaskPlacementSchema.index({ userId: 1, workspaceNodeId: 1, taskId: 1 });
 TaskPlacementSchema.index({ listId: 1, order: 1 });
+TaskPlacementSchema.index({ taskId: 1, listId: 1, userId: 1 });
 
 module.exports = mongoose.models.TaskPlacement || mongoose.model('TaskPlacement', TaskPlacementSchema);

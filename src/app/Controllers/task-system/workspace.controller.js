@@ -5,10 +5,30 @@ function actorId(req) {
 }
 
 exports.getTree = async (req, res) => {
+  const startedAt = Date.now();
+  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   try {
-    const data = await workspaceService.getUserTree(actorId(req), req.auth);
+    const data = await workspaceService.getUserTree(actorId(req), req.auth, {
+      forceSync: String(req.query.forceSync || '').toLowerCase() === 'true',
+    });
+    console.info('[task-perf]', {
+      requestId,
+      route: 'GET /task-system/workspace/tree',
+      userId: String(actorId(req) || ''),
+      durationMs: Date.now() - startedAt,
+      dbDurationMs: Date.now() - startedAt,
+      resultCount: Array.isArray(data) ? data.length : 0,
+    });
     res.json({ success: true, data });
   } catch (err) {
+    console.warn('[task-perf]', {
+      requestId,
+      route: 'GET /task-system/workspace/tree',
+      userId: String(actorId(req) || ''),
+      durationMs: Date.now() - startedAt,
+      dbDurationMs: Date.now() - startedAt,
+      error: err.message,
+    });
     res.status(err.status || 500).json({ success: false, message: err.message });
   }
 };

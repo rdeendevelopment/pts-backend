@@ -10,6 +10,25 @@ const { createNotification } = require('./notification.service');
 const { sendToUser } = require('./socket.service');
 const { syncUserProjects } = require('../../Repositories/workspace.repository');
 
+const TASK_CARD_PROJECTION = {
+  title: 1,
+  status: 1,
+  priority: 1,
+  dueDate: 1,
+  tags: 1,
+  workspaceNodeId: 1,
+  workspaceNodeType: 1,
+  ownerUserId: 1,
+  workspaceOwnerId: 1,
+  projectId: 1,
+  projectRef: 1,
+  createdBy: 1,
+  assignees: 1,
+  visibility: 1,
+  createdAt: 1,
+  updatedAt: 1,
+};
+
 function buildLogEntry(action, performedBy, meta = {}) {
   return { action, performedBy, meta, timestamp: new Date() };
 }
@@ -669,28 +688,62 @@ async function getTasksForNode(workspaceNodeId, filters = {}) {
   return Task.find(query).lean();
 }
 
-async function getWorkspaceTaskSummary(actorUserId, auth = {}) {
-  const isAdmin = canManageProjectTasks(auth);
-  const taskQuery = { status: { $ne: 'archived' } };
+async function buildUserTaskVisibilityFilter(userId) {
+  const rawId = String(userId || '');
+  const objectIds = new Set(/^[a-f\d]{24}$/i.test(rawId) ? [rawId] : []);
+  const adminLegacyMatch = rawId.match(/^admin:(\d+)$/i);
+  const legacyId = adminLegacyMatch ? Number(adminLegacyMatch[1]) : Number(rawId);
+  const userQueries = [];
+  const adminQueries = [];
 
-  if (!isAdmin) {
-    taskQuery.$or = [
-      { createdBy: actorUserId },
-      { 'assignees.userId': actorUserId },
-      { workspaceOwnerId: actorUserId },
-      { ownerUserId: actorUserId },
-    ];
+  if (/^[a-f\d]{24}$/i.test(rawId)) userQueries.push({ _id: rawId });
+  if (/^[a-f\d]{24}$/i.test(rawId)) adminQueries.push({ _id: rawId });
+  if (Number.isFinite(legacyId) && legacyId > 0) {
+    userQueries.push({ legacyId });
+    adminQueries.push({ legacyId });
   }
 
-  const tasks = await Task.find(taskQuery, {
-    title: 1,
-    status: 1,
-    priority: 1,
-    dueDate: 1,
-    workspaceNodeId: 1,
-    createdBy: 1,
-    assignees: 1,
-  }).lean();
+  if (userQueries.length || adminQueries.length) {
+    const [user, admin] = await Promise.all([
+      userQueries.length
+        ? CoreUser.findOne({ $or: userQueries }, { _id: 1, legacyId: 1 }).lean()
+        : null,
+      adminQueries.length
+        ? AccountAdmin.findOne({ $or: adminQueries }, { _id: 1, legacyId: 1 }).lean()
+        : null,
+    ]);
+
+    if (user?._id) objectIds.add(String(user._id));
+    if (admin?._id) objectIds.add(String(admin._id));
+  }
+
+  const candidates = Array.from(objectIds).filter((id) => /^[a-f\d]{24}$/i.test(id));
+  if (!candidates.length) return { _id: null };
+
+  return {
+    $or: [
+      { createdBy: { $in: candidates } },
+      { 'assignees.userId': { $in: candidates } },
+      { workspaceOwnerId: { $in: candidates } },
+      { ownerUserId: { $in: candidates } },
+    ],
+  };
+}
+
+async function getWorkspaceTaskSummary(actorUserId, auth = {}, options = {}) {
+  const isAdmin = canManageProjectTasks(auth);
+  const targetUserId = isAdmin && options.viewAsUserId ? options.viewAsUserId : actorUserId;
+  const taskQuery = { status: { $ne: 'archived' } };
+  const limit = Math.min(Math.max(Number(options.limit || 200), 1), 500);
+
+  if (!isAdmin || options.viewAsUserId) {
+    Object.assign(taskQuery, await buildUserTaskVisibilityFilter(targetUserId));
+  }
+
+  const tasks = await Task.find(taskQuery, TASK_CARD_PROJECTION)
+    .sort({ updatedAt: -1 })
+    .limit(limit)
+    .lean();
 
   const userIds = new Set();
   tasks.forEach((task) => {
@@ -710,6 +763,8 @@ async function getWorkspaceTaskSummary(actorUserId, auth = {}) {
     priority: task.priority || 'none',
     dueDate: task.dueDate || null,
     workspaceNodeId: task.workspaceNodeId ? String(task.workspaceNodeId) : '',
+    projectId: task.projectId ? String(task.projectId) : null,
+    projectRef: task.projectRef || null,
     createdBy: directory[String(task.createdBy)]?.id || task.createdBy,
     createdByUserId: directory[String(task.createdBy)]?.id || task.createdBy,
     assigneeIds: (task.assignees || [])
@@ -751,7 +806,10 @@ async function getUserTasksInNode(userId, workspaceNodeId, auth = {}) {
 
   const taskQuery = filters.length === 1 ? filters[0] : { $and: filters };
 
-  const tasks = await Task.find(taskQuery, { logs: 0 }).lean();
+  const tasks = await Task.find(taskQuery, TASK_CARD_PROJECTION)
+    .sort({ updatedAt: -1 })
+    .limit(250)
+    .lean();
   const taskIds = tasks.map((task) => task._id);
   const placements = await TaskPlacement.find({ userId, taskId: { $in: taskIds } }).lean();
   const placementMap = {};

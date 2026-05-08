@@ -4,8 +4,8 @@ function syncUserProjects(userId, auth = {}) {
   return workspaceRepo.syncUserProjects(userId, auth);
 }
 
-function getUserTree(userId, auth = {}) {
-  return workspaceRepo.getUserTree(userId, auth);
+function getUserTree(userId, auth = {}, options = {}) {
+  return workspaceRepo.getUserTree(userId, auth, options);
 }
 
 function createFolder(userId, data, auth = {}) {

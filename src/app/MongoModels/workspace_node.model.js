@@ -35,5 +35,7 @@ WorkspaceNodeSchema.index({ userId: 1, parentId: 1 });
 WorkspaceNodeSchema.index({ userId: 1, type: 1 });
 WorkspaceNodeSchema.index({ userId: 1, projectId: 1 });
 WorkspaceNodeSchema.index({ userId: 1, 'projectRef.sourceId': 1 });
+WorkspaceNodeSchema.index({ userId: 1, deletedAt: 1, order: 1 });
+WorkspaceNodeSchema.index({ userId: 1, deletedAt: 1, 'projectRef.sourceId': 1 });
 
 module.exports = mongoose.models.WorkspaceNode || mongoose.model('WorkspaceNode', WorkspaceNodeSchema);

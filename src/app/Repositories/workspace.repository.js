@@ -147,9 +147,11 @@ async function annotateProjectNodes(nodes) {
   });
 }
 
-async function getUserTree(userId, auth = {}) {
+async function getUserTree(userId, auth = {}, options = {}) {
   const user = await resolveUserContext(userId, auth);
-  await syncUserProjects(user._id, auth);
+  const existingCount = await WorkspaceNode.countDocuments({ userId: user._id, deletedAt: null });
+  const shouldSync = options.forceSync === true || existingCount === 0;
+  if (shouldSync) await syncUserProjects(user._id, auth);
   const nodes = await WorkspaceNode.find({ userId: user._id, deletedAt: null }).sort({ order: 1 }).lean();
   return annotateProjectNodes(nodes);
 }

@@ -25,5 +25,6 @@ const ListSchema = new Schema(
 ListSchema.index({ workspaceNodeId: 1, userId: 1 });
 ListSchema.index({ workspaceNodeId: 1, userId: 1, isInbox: 1 });
 ListSchema.index({ workspaceNodeId: 1, userId: 1, order: 1 });
+ListSchema.index({ userId: 1, workspaceNodeId: 1, isArchived: 1, order: 1 });
 
 module.exports = mongoose.models.List || mongoose.model('List', ListSchema);

@@ -295,6 +295,8 @@ const TimeEntrySchema = new Schema(
 
 TimeEntrySchema.index({ userId: 1, entryDate: 1 });
 TimeEntrySchema.index({ userId: 1, weekId: 1 });
+TimeEntrySchema.index({ taskId: 1, status: 1 });
+TimeEntrySchema.index({ legacyProjectId: 1, taskId: 1, status: 1 });
 
 // Exactly one running timer per user at a time.
 const ActiveTimerSchema = new Schema(

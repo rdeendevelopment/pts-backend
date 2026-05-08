@@ -124,11 +124,17 @@ const TaskSchema = new Schema(
 );
 
 TaskSchema.index({ workspaceNodeId: 1, status: 1 });
+TaskSchema.index({ workspaceNodeId: 1, status: 1, createdAt: -1 });
+TaskSchema.index({ workspaceNodeId: 1, status: 1, dueDate: 1 });
 TaskSchema.index({ 'assignees.userId': 1, status: 1 });
 TaskSchema.index({ createdBy: 1 });
+TaskSchema.index({ createdBy: 1, status: 1, dueDate: 1 });
 TaskSchema.index({ parentTaskId: 1 });
 TaskSchema.index({ projectId: 1 });
 TaskSchema.index({ 'projectRef.sourceId': 1, status: 1 });
+TaskSchema.index({ 'projectRef.sourceId': 1, status: 1, createdAt: -1 });
 TaskSchema.index({ status: 1, dueDate: 1 });
+TaskSchema.index({ workspaceOwnerId: 1, status: 1, dueDate: 1 });
+TaskSchema.index({ ownerUserId: 1, status: 1, dueDate: 1 });
 
 module.exports = mongoose.models.Task || mongoose.model('Task', TaskSchema);
