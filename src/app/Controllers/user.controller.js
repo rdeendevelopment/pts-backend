@@ -31,8 +31,8 @@ exports.signup = async function signup(req, res) {
 
 exports.login = async function login(req, res) {
   try {
-    const { password, email } = req.body;
-    const loginAccount = await findLoginAccount(email);
+    const { password, identifier, email } = req.body;
+    const loginAccount = await findLoginAccount(identifier || email);
     const user = loginAccount?.accountType === 'user' ? loginAccount.account : null;
 
     if (!user) return res.status(400).send({ message: 'Invalid Email/Username or password' });

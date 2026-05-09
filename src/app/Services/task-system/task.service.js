@@ -73,6 +73,24 @@ async function normalizeCommentItem(item, index, actorUserId, userDirectory = {}
   };
 }
 
+function normalizeAttachmentItem(item, actorUserId) {
+  const name = String(item?.name || item?.fileName || item?.title || '').trim();
+  const url = String(item?.url || '').trim();
+  if (!name || !url) return null;
+  return {
+    ...(item?._id ? { _id: item._id } : {}),
+    name,
+    url,
+    publicId: item?.publicId || item?.storageKey || null,
+    storageProvider: item?.storageProvider || item?.provider || 'local',
+    mimeType: item?.mimeType || null,
+    size: Number(item?.size || 0),
+    uploadedBy: item?.uploadedBy || actorUserId,
+    uploadedAt: item?.uploadedAt ? new Date(item.uploadedAt) : new Date(),
+    isDeleted: Boolean(item?.isDeleted),
+  };
+}
+
 async function getProjectMembersRaw(projectSourceId) {
   return ProjectMember.find({ 'projectRef.sourceId': Number(projectSourceId), isActive: true }).lean();
 }
@@ -811,7 +829,7 @@ async function getUserTasksInNode(userId, workspaceNodeId, auth = {}) {
     .limit(250)
     .lean();
   const taskIds = tasks.map((task) => task._id);
-  const placements = await TaskPlacement.find({ userId, taskId: { $in: taskIds } }).lean();
+  const placements = await TaskPlacement.find({ userId, workspaceNodeId: node._id, taskId: { $in: taskIds } }).lean();
   const placementMap = {};
   placements.forEach((p) => { placementMap[String(p.taskId)] = p; });
 
@@ -819,8 +837,15 @@ async function getUserTasksInNode(userId, workspaceNodeId, auth = {}) {
   for (const task of tasks) {
     let placement = placementMap[String(task._id)];
 
-    if (!placement || !sameId(placement.workspaceNodeId, node._id)) {
-      placement = await ensureUserPlacement(task, userId, node, node);
+    if (!placement) {
+      const targetList = await ensureInboxExists(userId, node._id);
+      placement = await TaskPlacement.create({
+        taskId: task._id,
+        userId,
+        workspaceNodeId: node._id,
+        listId: targetList._id,
+        order: await nextPlacementOrder(userId, targetList._id),
+      });
     }
 
     const listIdStr = String(placement.listId || inbox._id);
@@ -992,6 +1017,18 @@ async function updateTask(actorUserId, taskId, data) {
     }
   }
 
+  if (data.attachments !== undefined) {
+    const previousAttachments = (task.attachments || []).map((item) => item.toObject ? item.toObject() : item);
+    task.attachments = Array.isArray(data.attachments)
+      ? data.attachments.map((item) => normalizeAttachmentItem(item, actorUserId)).filter(Boolean)
+      : [];
+    const addedAttachments = listChangedItems(previousAttachments, task.attachments || [], '_id');
+    if (addedAttachments.length) {
+      task.logs.push(buildLogEntry('attachment_added', actorUserId, { attachmentNames: addedAttachments.map((item) => item.name) }));
+      notificationJobs.push({ type: 'task_updated', socketEvent: 'task_updated', message: `"${task.title}" attachments were updated`, payload: { field: 'attachments', attachments: addedAttachments } });
+    }
+  }
+
   await task.save();
   const updatedTask = await enrichTaskPayload(task);
   for (const job of notificationJobs) await notifyTaskParticipants(updatedTask, actorUserId, job);
@@ -1100,7 +1137,7 @@ async function moveTaskToList(userId, taskId, newListId, auth = {}) {
   const task = await Task.findOne(taskQuery);
   if (!task) throw serviceError('Task not found', 404);
 
-  let placement = await TaskPlacement.findOne({ taskId, userId: placementUserId });
+  let placement = await TaskPlacement.findOne({ taskId, userId: placementUserId, workspaceNodeId: list.workspaceNodeId });
   if (!placement) {
     placement = await TaskPlacement.create({
       taskId,

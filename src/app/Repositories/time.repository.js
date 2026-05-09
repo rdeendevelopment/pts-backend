@@ -425,7 +425,7 @@ async function deleteEntry(userId, entryId, budgetService) {
   await assertWeekEditable(week);
   await TimeEntry.deleteOne({ legacyId: Number(entryId), userId });
   await recalculateWeek(existing.weekId);
-  await budgetService.recalculateBudget(existing.budgetId?.legacyId ?? existing.budgetId);
+  await budgetService.recalculateBudget(existing.budgetId);
   return getWeek(userId, existing.entryDate);
 }
 

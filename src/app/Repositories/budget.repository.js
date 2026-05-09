@@ -145,7 +145,15 @@ function serializeRequest(row) {
 
 async function recalculateBudget(budgetId) {
   if (!budgetId) return null;
-  const budget = await ProjectBudget.findOne({ legacyId: Number(budgetId) });
+  const rawBudgetId = String(budgetId || '').trim();
+  const legacyBudgetId = Number(rawBudgetId);
+  const query = /^[a-f\d]{24}$/i.test(rawBudgetId)
+    ? { _id: rawBudgetId }
+    : Number.isFinite(legacyBudgetId)
+      ? { legacyId: legacyBudgetId }
+      : null;
+  if (!query) return null;
+  const budget = await ProjectBudget.findOne(query);
   if (!budget) return null;
   const totals = await TimeEntry.aggregate([
     { $match: { budgetId: budget._id } },

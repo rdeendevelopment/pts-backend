@@ -59,6 +59,9 @@ if (!fs.existsSync(uploadDirectory)) {
 }
 // serve uploaded files
 app.use("/uploads", express.static(uploadDirectory, { fallthrough: true }));
+// Converse attachments are saved under {cwd}/uploads/converse/… (separate from the legacy
+// uploads directory above). Fall through so both trees are accessible at /uploads/*.
+app.use("/uploads", express.static(path.resolve("uploads"), { fallthrough: true }));
 
 // ─────────────────────────────────────────────────────────────
 // Healthcheck & basic root
@@ -85,6 +88,15 @@ const taskRoutes = require('./src/app/Routes/task-system/task.route');
 app.use('/api/task-system/tasks', taskRoutes);
 const notificationRoutes = require('./src/app/Routes/task-system/notification.route');
 app.use('/api/task-system/notifications', notificationRoutes);
+
+// Modules Management
+const { router: modulesRouter, seedModules } = require('./src/app/Modules/modules-management');
+app.use('/api/modules-management', modulesRouter);
+connectMongo().then(() => seedModules()).catch((e) => console.error('[seed] modules-management:', e));
+
+// Converse
+const converseRoutes = require('./src/app/Modules/converse/routes');
+app.use('/api/converse', converseRoutes);
 
 // ─────────────────────────────────────────────────────────────
 // Upload endpoint
@@ -152,6 +164,9 @@ const server = http.createServer(app);
 
 server.listen(port, () => {
   initSocket(server);
+  const { getIO } = require('./src/app/Services/task-system/socket.service');
+  const { registerConverseSocket } = require('./src/app/Modules/converse/sockets/converse.socket');
+  registerConverseSocket(getIO());
   console.log(
     `🚀 ${constants.APP_TITLE} running in ${constants.APP_ENV} on port ${port}`
   );
