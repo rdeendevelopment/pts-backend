@@ -98,6 +98,11 @@ connectMongo().then(() => seedModules()).catch((e) => console.error('[seed] modu
 const converseRoutes = require('./src/app/Modules/converse/routes');
 app.use('/api/converse', converseRoutes);
 
+// Announcements
+const { router: announcementsRouter, ensureAnnouncementIndexes } = require('./src/app/Modules/announcements');
+app.use('/api/announcements', announcementsRouter);
+connectMongo().then(() => ensureAnnouncementIndexes()).catch((e) => console.error('[seed] announcements indexes:', e));
+
 // ─────────────────────────────────────────────────────────────
 // Upload endpoint
 // expects field name "files" (single or multiple)
