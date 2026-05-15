@@ -6,6 +6,16 @@ const fs = require("fs");
 const path = require("path");
 const axios = require("axios"); // if you use it in routes
 const constants = require("./config/constants");
+
+// Fail fast in production if JWT signing secret is missing or trivially weak.
+const _envLower = String(constants.APP_ENV || process.env.NODE_ENV || "").toLowerCase();
+if (_envLower === "production") {
+  const secret = String(constants.APP_SECRET || "").trim();
+  if (!secret || secret.length < 16) {
+    console.error("[bootstrap] APP_SECRET must be set (env APP_SECRET) and at least 16 characters in production.");
+    process.exit(1);
+  }
+}
 const initializeRoutes = require("./src/routes/index");
 const { connectMongo } = require("./config/mongo");
 const { initSocket } = require("./src/app/Services/task-system/socket.service");
@@ -103,6 +113,13 @@ const { router: announcementsRouter, ensureAnnouncementIndexes } = require('./sr
 app.use('/api/announcements', announcementsRouter);
 connectMongo().then(() => ensureAnnouncementIndexes()).catch((e) => console.error('[seed] announcements indexes:', e));
 
+// Task V2 — separate collections + taskV2:* socket events. Legacy tasks remain at /api/task-system/*.
+// Rollback: redeploy a build without Task V2 UI routes or git revert; data stays in *V2 collections.
+const taskV2BoardRoutes     = require('./src/app/Modules/task-v2/routes/board.routes');
+const taskV2PrivateRoutes   = require('./src/app/Modules/task-v2/routes/private-workspace.routes');
+app.use('/api/task-v2',         taskV2BoardRoutes);
+app.use('/api/task-v2/private', taskV2PrivateRoutes);
+
 // ─────────────────────────────────────────────────────────────
 // Upload endpoint
 // expects field name "files" (single or multiple)
@@ -154,8 +171,11 @@ app.use((req, res) => {
 
 app.use((err, req, res, _next) => {
   const isDev = (process.env.NODE_ENV || "").toLowerCase() === "development";
-  res.status(err.status || 500).json({
-    message: err.message || "Internal Server Error",
+  const status = err.status || 500;
+  const clientMessage =
+    status >= 500 && !isDev ? "Internal Server Error" : err.message || "Internal Server Error";
+  res.status(status).json({
+    message: clientMessage,
     ...(isDev ? { stack: err.stack } : {}),
   });
 });
@@ -171,7 +191,12 @@ server.listen(port, () => {
   initSocket(server);
   const { getIO } = require('./src/app/Services/task-system/socket.service');
   const { registerConverseSocket } = require('./src/app/Modules/converse/sockets/converse.socket');
-  registerConverseSocket(getIO());
+  const { registerV2SocketHandlers } = require('./src/app/Modules/task-v2/sockets/task-v2.socket');
+  const io = getIO();
+  registerConverseSocket(io);
+  io.on('connection', (socket) => {
+    registerV2SocketHandlers(socket);
+  });
   console.log(
     `🚀 ${constants.APP_TITLE} running in ${constants.APP_ENV} on port ${port}`
   );
@@ -182,8 +207,9 @@ server.on("error", (error) => handleError(error, port));
 // Graceful shutdown (PM2/containers)
 function shutdown() {
   console.log("Shutting down gracefully...");
-  server.close(async () => {
-    process.exit(0);
+  const { closeSocket } = require("./src/app/Services/task-system/socket.service");
+  server.close(() => {
+    closeSocket(() => process.exit(0));
   });
 
   // Force exit if not closed in time

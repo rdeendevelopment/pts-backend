@@ -109,6 +109,7 @@ const TaskSchema = new Schema(
     visibility:        { type: String, enum: ['private', 'project', 'shared'], default: 'private', index: true },
     checklist:         { type: [ChecklistItemSchema], default: [] },
     attachments:       { type: [AttachmentSchema], default: [] },
+    // comments[] kept for backward compatibility; v2 reads from task_comments collection
     comments:          { type: [CommentSchema], default: [] },
     status:            { type: String, enum: ['active', 'completed', 'archived'], default: 'active' },
     completedAt:       { type: Date, default: null },

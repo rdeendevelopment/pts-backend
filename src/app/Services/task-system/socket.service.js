@@ -4,6 +4,8 @@ const constants = require('../../../../config/constants');
 const { CoreUser, AccountAdmin } = require('../../MongoModels');
 
 let io = null;
+
+// Map userId string → socket.id (for direct user targeting)
 const userSockets = {};
 
 function socketKeysForUser(user) {
@@ -64,4 +66,22 @@ function getIO() {
   return io;
 }
 
-module.exports = { initSocket, sendToUser, getIO };
+/** Close Socket.IO cleanly before process exit (PM2 SIGTERM / containers). */
+function closeSocket(done) {
+  if (!io) {
+    if (done) done();
+    return;
+  }
+  try {
+    io.disconnectSockets(true);
+    io.close(() => {
+      io = null;
+      if (done) done();
+    });
+  } catch (_e) {
+    io = null;
+    if (done) done();
+  }
+}
+
+module.exports = { initSocket, sendToUser, getIO, closeSocket };
