@@ -9,7 +9,10 @@
       "Bash(node -c src/app/Modules/projects/controllers/project-assignment.controller.js)",
       "Bash(node -c src/app/Modules/projects/controllers/project-budget.controller.js)",
       "Bash(node -c src/app/Modules/projects/controllers/project-request.controller.js)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(node -c src/app/Modules/projects/routes/project.route.js)",
+      "Bash(node -c src/app/Modules/projects/routes/project-budget.route.js)",
+      "Bash(node -c src/app/Modules/projects/routes/project-dashboard.route.js)"
     ]
   }
 }

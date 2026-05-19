@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const budgetController = require('../controllers/project-budget.controller');
-const { authenticate, requireAnyPermission, requirePermission } = require('../app/Middleware/auth');
+const { authenticate, requireAnyPermission, requirePermission } = require('../../Middleware/auth');
 
 router.use(authenticate);
 
