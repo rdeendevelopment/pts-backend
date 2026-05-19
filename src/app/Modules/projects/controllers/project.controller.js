@@ -1,7 +1,9 @@
 const projectService = require('../services/project.service');
+const { validateProject, validatePagination } = require('../validators');
 
 exports.save = async (req, res) => {
   try {
+    validateProject(req.body);
     const project = await projectService.saveProject(req.body, req);
     return res.json({ message: 'Project Created!', data: project });
   } catch (error) {
@@ -13,11 +15,12 @@ exports.save = async (req, res) => {
 exports.getAllProjects = async (req, res) => {
   try {
     const { page = 1, limit = 5000 } = req.query;
+    validatePagination({ page, limit });
     const result = await projectService.listProjects({ page, limit });
     return res.json({ ...result, source: 'mongodb' });
   } catch (error) {
     console.error('Error fetching projects:', error);
-    return res.status(500).json({ message: 'Internal server error' });
+    return res.status(error.status || 500).json({ message: error.message || 'Internal server error' });
   }
 };
 
@@ -69,7 +72,7 @@ exports.getUserAssignedProjects = async (req, res) => {
 
 exports.getUserProjectDetail = async (req, res) => {
   try {
-    const project = await projectService.getUserProjectDetail(req.body.projectId);
+    const project = await projectService.getProjectById(req.body.projectId);
     if (!project) return res.status(404).json({ message: 'Project not found' });
     return res.json({ data: project });
   } catch (error) {

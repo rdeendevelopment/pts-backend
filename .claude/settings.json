@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk '{print \"  \" $0}')",
+      "Bash(echo \"Total files: $\\(find /Users/uilyas/office/projects/pts/development/project-tracking-system-api/src/app/modules/projects -type f -name \"*.js\")",
+      "Bash(node -c src/app/Repositories/project.repository.js)",
+      "Bash(node -c src/app/Services/project.service.js)",
+      "Bash(node -c src/app/Modules/projects/controllers/project.controller.js)",
+      "Bash(node -c src/app/Modules/projects/controllers/project-assignment.controller.js)",
+      "Bash(node -c src/app/Modules/projects/controllers/project-budget.controller.js)",
+      "Bash(node -c src/app/Modules/projects/controllers/project-request.controller.js)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}

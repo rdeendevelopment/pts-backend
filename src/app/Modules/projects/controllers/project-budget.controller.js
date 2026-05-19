@@ -1,4 +1,5 @@
 const budgetService = require('../services/project-budget.service');
+const { validateBudget } = require('../validators');
 
 function userId(req) {
   return req.user?._id || req.auth?.user?._id || req.user?.id || req.auth?.user?.id;
@@ -22,6 +23,7 @@ exports.getBudgets = async (req, res) => {
 
 exports.createBudget = async (req, res) => {
   try {
+    validateBudget(req.body);
     const data = await budgetService.createBudget(userId(req), req.params.projectId, req.body);
     return res.status(201).json({ success: true, data });
   } catch (error) {
@@ -31,6 +33,7 @@ exports.createBudget = async (req, res) => {
 
 exports.updateBudget = async (req, res) => {
   try {
+    validateBudget(req.body);
     const data = await budgetService.updateBudget(userId(req), req.params.projectId, req.params.budgetId, req.body);
     return res.json({ success: true, data });
   } catch (error) {

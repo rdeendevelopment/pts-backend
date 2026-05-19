@@ -1,28 +1,10 @@
-const { CoreProject, CoreProjectRequest, CoreUser } = require('../MongoModels');
+const { CoreProject, CoreProjectRequest, CoreUser } = require('../../MongoModels');
+const { serializeProjectRequest } = require('../serializers');
+const { validateProjectRequest } = require('../validators');
 
 async function nextLegacyId() {
   const row = await CoreProjectRequest.findOne({}, { legacyId: 1 }).sort({ legacyId: -1 }).lean();
   return Number(row?.legacyId || 0) + 1;
-}
-
-function serialize(row) {
-  const request = row?.toObject ? row.toObject() : row;
-  return {
-    id: request.legacyId,
-    project_id: request.legacyProjectId,
-    user_id: request.legacyUserId,
-    type: request.type,
-    detail: request.detail,
-    hours: request.hours,
-    project_old_deadline: request.projectOldDeadline,
-    project_new_deadline: request.projectNewDeadline,
-    status: request.status,
-    is_allocate_hours: request.isAllocateHours,
-    is_approved: request.isApproved,
-    is_deleted: request.isDeleted,
-    created_at: request.legacyCreatedAt || request.createdAt,
-    updated_at: request.legacyUpdatedAt || request.updatedAt,
-  };
 }
 
 async function applyApproval(project, request, body, approving) {
@@ -43,6 +25,7 @@ async function applyApproval(project, request, body, approving) {
 
 exports.save = async function save(req, res) {
   try {
+    validateProjectRequest(req.body);
     const body = req.body;
     const [project, user] = await Promise.all([
       CoreProject.findOne({ legacyId: Number(body.project_id) }),
@@ -69,17 +52,17 @@ exports.save = async function save(req, res) {
     });
     if (body.status === 'approved') await applyApproval(project, request, body, true);
     await request.save();
-    return res.send({ message: 'Request saved successfully!', data: serialize(request) });
+    return res.send({ message: 'Request saved successfully!', data: serializeProjectRequest(request) });
   } catch (error) {
     console.error(`Error in save method: ${error.message}`);
-    return res.status(500).send({ message: 'Internal server error', error: error.message });
+    return res.status(error.status || 500).send({ message: error.message || 'Internal server error', error: error.message });
   }
 };
 
 exports.getAllRequests = async function getAllRequests(req, res) {
   try {
     const requests = await CoreProjectRequest.find({ isDeleted: false }).lean();
-    return res.send({ data: requests.map(serialize) });
+    return res.send({ data: requests.map(serializeProjectRequest) });
   } catch (error) {
     return res.status(500).send({ message: 'Internal server error', error: error.message });
   }
@@ -88,7 +71,7 @@ exports.getAllRequests = async function getAllRequests(req, res) {
 exports.getProjectAllRequests = async function getProjectAllRequests(req, res) {
   try {
     const requests = await CoreProjectRequest.find({ legacyProjectId: Number(req.params.id), isDeleted: false }).lean();
-    return res.send({ data: requests.map(serialize) });
+    return res.send({ data: requests.map(serializeProjectRequest) });
   } catch (error) {
     return res.status(500).send({ message: 'Internal server error', error: error.message });
   }
@@ -96,6 +79,7 @@ exports.getProjectAllRequests = async function getProjectAllRequests(req, res) {
 
 exports.updateRequest = async function updateRequest(req, res) {
   try {
+    validateProjectRequest(req.body);
     const body = req.body;
     const request = await CoreProjectRequest.findOne({ legacyId: Number(req.params.id) });
     if (!request) return res.status(404).send({ message: 'Request not found' });
@@ -113,9 +97,9 @@ exports.updateRequest = async function updateRequest(req, res) {
       legacyUpdatedAt: new Date(),
     });
     await request.save();
-    return res.send({ message: 'Request updated successfully!', data: serialize(request) });
+    return res.send({ message: 'Request updated successfully!', data: serializeProjectRequest(request) });
   } catch (error) {
-    return res.status(500).send({ message: 'Internal server error', error: error.message });
+    return res.status(error.status || 500).send({ message: error.message || 'Internal server error', error: error.message });
   }
 };
 

@@ -1,7 +1,9 @@
 const projectService = require('../services/project.service');
+const { validateAssignment } = require('../validators');
 
 exports.unassignUser = async (req, res) => {
   try {
+    validateAssignment(req.body);
     const data = await projectService.unassignUser(req.body);
     return res.json({ message: 'User unassigned successfully.', data });
   } catch (error) {
@@ -11,6 +13,7 @@ exports.unassignUser = async (req, res) => {
 
 exports.assignOrReassignUser = async (req, res) => {
   try {
+    validateAssignment(req.body);
     const data = await projectService.assignOrReassignUser(req.body);
     return res.json({ message: 'User assigned successfully.', data });
   } catch (error) {
