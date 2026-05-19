@@ -19,7 +19,7 @@ const {
 } = require('../MongoModels');
 
 const { connectMongo } = require('../../../config/mongo');
-const projectRepo = require('./project.repository');
+const projectRepo = require('../Modules/projects/repositories/project.repository');
 
 function enabled() {
   return true;
