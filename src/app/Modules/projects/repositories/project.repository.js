@@ -6,7 +6,7 @@ const {
   CoreAttachment,
   ProjectBudget,
   TimeEntry,
-} = require('../../MongoModels');
+} = require('../../../MongoModels');
 const mongoose = require('mongoose');
 
 const { connectMongo } = require('../../../config/mongo');

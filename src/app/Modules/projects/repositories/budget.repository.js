@@ -5,7 +5,7 @@ const {
   ProjectBudget,
   ProjectBudgetRequest,
   TimeEntry,
-} = require('../../MongoModels');
+} = require('../../../MongoModels');
 
 function serviceError(message, status = 400, data = null) {
   const error = new Error(message);
