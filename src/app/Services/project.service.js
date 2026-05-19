@@ -23,7 +23,7 @@ async function saveProject(body = {}, req = {}) {
   const normalizedAssignUsers = normalizeAssignUsers(assign_users);
   const projectType = rest.project_type || (rest.is_retain ? 'retainer' : 'fixed_hours');
   const isRetainer = projectType === 'retainer' || Boolean(rest.is_retain);
-  const monthlyRetainerHours = Number(rest.retainer_hours_per_month || 0);
+  const monthlyRetainerHours = Number(rest.retainer_hours_per_month || rest.retainerHoursPerMonth || 0);
   const allowBudgetExceed = rest.allow_budget_exceed !== undefined
     ? Boolean(rest.allow_budget_exceed)
     : rest.allow_exceed !== undefined
@@ -77,9 +77,9 @@ async function saveProject(body = {}, req = {}) {
     projectType,
     {
       hours: rest.hours,
-      retainer_hours_per_month: rest.retainer_hours_per_month,
-      estimated_hours: rest.estimated_hours,
-      extra_hours: rest.extra_hours,
+      retainer_hours_per_month: rest.retainer_hours_per_month || rest.retainerHoursPerMonth,
+      estimated_hours: rest.estimated_hours || rest.estimatedHours,
+      extra_hours: rest.extra_hours || rest.extraHours,
     },
     { allowExceed: allowBudgetExceed }
   );
@@ -152,7 +152,7 @@ async function fetchAssignment(projectId, userId) {
 }
 
 async function assignOrReassignUser(body = {}) {
-  const { projectId, userId, hoursCapMinutes, hours_cap_minutes, capPeriod, cap_period, assignedRole, assigned_role } = body;
+  const { projectId, userId, hoursCapMinutes, hours_cap_minutes, capPeriod, cap_period, assignedRole, assigned_role, canLogTime, can_log_time } = body;
   const [project, user] = await Promise.all([
     CoreProject.findOne({ legacyId: Number(projectId), isDeleted: false }).lean(),
     CoreUser.findOne({ legacyId: Number(userId), isDeleted: false }).lean(),
@@ -175,6 +175,7 @@ async function assignOrReassignUser(body = {}) {
     hoursCapMinutes: hoursCapMinutes ?? hours_cap_minutes ?? null,
     capPeriod: capPeriod || cap_period || 'none',
     assignedRole: assignedRole || assigned_role || null,
+    canLogTime: canLogTime ?? can_log_time ?? true,
     legacyUpdatedAt: new Date(),
   };
 

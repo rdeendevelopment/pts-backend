@@ -469,7 +469,7 @@ module.exports = {
     if (projectData.project_type !== 'retainer' && projectData.projectType !== 'retainer' && !projectData.is_retain && !projectData.isRetain) {
       throw serviceError('Only retainer projects can create monthly retainer budgets', 400);
     }
-    const hours = Number(projectData.retainer_hours_per_month || projectData.retainerHoursPerMonth || projectData.hours || 0);
+    const hours = Number(projectData.retainer_hours_per_month || projectData.retainerHoursPerMonth || projectData.retainer_hours_monthly || projectData.hours || 0);
     if (!hours || hours < 1) throw serviceError('Monthly retainer hours are required before creating a budget', 400);
     const name = `${range.label} Retainer`;
     const project = await assertProject(projectId);
