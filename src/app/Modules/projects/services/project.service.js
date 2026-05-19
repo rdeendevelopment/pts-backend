@@ -1,6 +1,7 @@
 const { CoreProject, CoreUser, ProjectAssignment } = require('../../MongoModels');
 const projectRepo = require('../repositories/project.repository');
 const { createInitialProjectBudgets } = require('./project-budget.service');
+const { serializeAssignment } = require('../serializers');
 
 function serviceError(message, status = 400) {
   const error = new Error(message);
@@ -112,32 +113,6 @@ async function getUserAssignedProjects(userId, query = {}) {
   return projectRepo.getUserAssignedProjects(userId, query);
 }
 
-async function getUserProjectDetail(projectId) {
-  return projectRepo.getProjectById(projectId);
-}
-
-function serializeAssignment(assignment) {
-  if (!assignment) return null;
-  return {
-    id: assignment.legacyId,
-    project_id: assignment.legacyProjectId,
-    user_id: assignment.legacyUserId,
-    assign_date: assignment.assignDate,
-    unassign_date: assignment.unassignDate,
-    status: assignment.status,
-    is_deleted: assignment.isDeleted,
-    hours_cap_minutes: assignment.hoursCapMinutes,
-    cap_period: assignment.capPeriod,
-    assigned_role: assignment.assignedRole,
-    assigned_at: assignment.assignedAt,
-    user: assignment.userId ? {
-      id: assignment.userId.legacyId,
-      first_name: assignment.userId.firstName,
-      last_name: assignment.userId.lastName,
-      email: assignment.userId.email,
-    } : undefined,
-  };
-}
 
 async function fetchAssignment(projectId, userId) {
   const [project, user] = await Promise.all([
@@ -221,7 +196,6 @@ module.exports = {
   deleteProject,
   updateProjectField,
   getUserAssignedProjects,
-  getUserProjectDetail,
   assignOrReassignUser,
   unassignUser,
 };

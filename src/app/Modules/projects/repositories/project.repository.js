@@ -10,6 +10,14 @@ const {
 const mongoose = require('mongoose');
 
 const { connectMongo } = require('../../../config/mongo');
+const {
+  serializeUser,
+  serializeClient,
+  serializeAttachment,
+  serializeAssignment,
+  serializeProject,
+  isoDate,
+} = require('../serializers');
 
 function plain(row) {
   if (!row) return null;
@@ -27,11 +35,6 @@ function id(value) {
   return Number(value);
 }
 
-function isoDate(value) {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
 
 function dateOrNull(value) {
   if (!value) return null;
@@ -94,141 +97,10 @@ function snapshotUser(user) {
   };
 }
 
-function serializeUser(user) {
-  if (!user) return null;
-  return {
-    _id: user._id,
-    id: id(user.legacyId),
-    role: user.role,
-    first_name: user.firstName,
-    last_name: user.lastName,
-    user_name: user.userName,
-    email: user.email,
-    contact: user.contact,
-    password: user.password,
-    is_active: Boolean(user.isActive),
-    is_deleted: Boolean(user.isDeleted),
-    is_verified: Boolean(user.isVerified),
-    last_login: isoDate(user.lastLogin),
-    created_at: isoDate(user.legacyCreatedAt || user.createdAt),
-    updated_at: isoDate(user.legacyUpdatedAt || user.updatedAt),
-    deleted_at: isoDate(user.legacyDeletedAt),
-  };
-}
 
-function serializeClient(client) {
-  if (!client) return null;
-  return {
-    id: id(client.legacyId),
-    role: client.role,
-    first_name: client.firstName,
-    last_name: client.lastName,
-    company_name: client.companyName,
-    type: client.type,
-    email: client.email,
-    contact: client.contact,
-    is_active: Boolean(client.isActive),
-    is_deleted: Boolean(client.isDeleted),
-    created_at: isoDate(client.legacyCreatedAt || client.createdAt),
-    updated_at: isoDate(client.legacyUpdatedAt || client.updatedAt),
-    deleted_at: isoDate(client.legacyDeletedAt),
-  };
-}
 
-function serializeAttachment(attachment) {
-  if (!attachment) return null;
-  return {
-    id: id(attachment.legacyId),
-    link_id: attachment.linkId,
-    type: attachment.type,
-    title: attachment.title,
-    url: attachment.url,
-    status: attachment.status,
-    size: attachment.size,
-    is_deleted: Boolean(attachment.isDeleted),
-    created_at: isoDate(attachment.legacyCreatedAt || attachment.createdAt),
-    updated_at: isoDate(attachment.legacyUpdatedAt || attachment.updatedAt),
-    deleted_at: isoDate(attachment.legacyDeletedAt),
-  };
-}
 
-function serializeAssignment(assignment) {
-  if (!assignment) return null;
-  const user = assignment.user || assignment.userId || null;
-  const derivedLegacyUserId = assignment.legacyUserId ?? user?.legacyId ?? assignment.userSnapshot?.id ?? null;
-  const derivedLegacyProjectId = assignment.legacyProjectId ?? assignment.project?.legacyId ?? assignment.projectId?.legacyId ?? null;
-  return {
-    id: id(assignment.legacyId),
-    project_id: derivedLegacyProjectId === null ? '' : String(derivedLegacyProjectId),
-    user_id: derivedLegacyUserId === null ? '' : String(derivedLegacyUserId),
-    assign_date: isoDate(assignment.assignDate),
-    unassign_date: isoDate(assignment.unassignDate),
-    status: assignment.status,
-    is_deleted: Boolean(assignment.isDeleted),
-    hours_cap_minutes: assignment.hoursCapMinutes,
-    cap_period: assignment.capPeriod,
-    assigned_role: assignment.assignedRole,
-    assigned_at: isoDate(assignment.assignedAt),
-    can_log_time: assignment.canLogTime !== false,
-    created_at: isoDate(assignment.legacyCreatedAt || assignment.createdAt),
-    updated_at: isoDate(assignment.legacyUpdatedAt || assignment.updatedAt),
-    deleted_at: isoDate(assignment.legacyDeletedAt),
-    user: user ? serializeUser(user) : {
-      id: id(derivedLegacyUserId),
-      first_name: assignment.userSnapshot?.firstName || '',
-      last_name: assignment.userSnapshot?.lastName || '',
-      email: assignment.userSnapshot?.email || '',
-    },
-  };
-}
 
-function serializeProject(project, extras = {}) {
-  if (!project) return null;
-  const client = project.client || project.clientId || null;
-  const clientPayload = client ? serializeClient(client) : {
-    id: id(project.legacyClientId),
-    first_name: project.clientSnapshot?.firstName || '',
-    last_name: project.clientSnapshot?.lastName || '',
-    company_name: project.clientSnapshot?.companyName || '',
-    email: project.clientSnapshot?.email || '',
-  };
-
-  return {
-    id: id(project.legacyId),
-    title: project.title,
-    client_id: id(project.legacyClientId),
-    client_name: clientPayload?.company_name || [clientPayload?.first_name, clientPayload?.last_name].filter(Boolean).join(' ').trim(),
-    clientName: clientPayload?.company_name || [clientPayload?.first_name, clientPayload?.last_name].filter(Boolean).join(' ').trim(),
-    client: clientPayload,
-    detail: project.detail,
-    notes: project.notes,
-    is_retain: Boolean(project.isRetain),
-    project_type: project.projectType,
-    retainer_hours_per_month: project.retainerHoursPerMonth,
-    retainer_renewal_day: project.retainerRenewalDay,
-    auto_create_monthly_budget: Boolean(project.autoCreateMonthlyBudget),
-    allow_budget_exceed: Boolean(project.allowBudgetExceed),
-    budget_amount: project.budgetAmount,
-    estimated_hours: project.estimatedHours,
-    extra_hours: project.extraHours,
-    assign_users: project.assignUsers || [],
-    next_steps: project.nextSteps || [],
-    next_step_title: project.nextStepTitle,
-    hours: project.hours,
-    deadline: isoDate(project.deadline),
-    status: project.status,
-    is_active: Boolean(project.isActive),
-    is_deleted: Boolean(project.isDeleted),
-    created_at: isoDate(project.legacyCreatedAt || project.createdAt),
-    updated_at: isoDate(project.legacyUpdatedAt || project.updatedAt),
-    assignedUsers: (extras.assignedUsers || []).map(serializeAssignment),
-    attachments: (extras.attachments || []).map(serializeAttachment),
-    totalAllocatedMinutes: extras.totalAllocatedMinutes || 0,
-    totalConsumedMinutes: extras.totalConsumedMinutes || 0,
-    totalLoggedMinutes: extras.totalLoggedMinutes || 0,
-    totalRemainingMinutes: Math.max(0, (extras.totalAllocatedMinutes || 0) - (extras.totalConsumedMinutes || 0)),
-  };
-}
 
 async function nextLegacyId(Model) {
   const row = await Model.findOne({}, { legacyId: 1 }).sort({ legacyId: -1 }).lean();
