@@ -398,7 +398,8 @@ async function resolveBudgetForTimeEntry(projectId, requestedBudgetId) {
       warningThresholdPercent: 80,
       status: 'active',
     });
-    return serializeBudget(newBudget);
+    const populated = await ProjectBudget.findOne({ _id: newBudget._id }).populate('projectId', 'legacyId').lean();
+    return serializeBudget(populated);
   }
 
   return null;
