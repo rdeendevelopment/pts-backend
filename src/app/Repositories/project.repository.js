@@ -169,6 +169,7 @@ function serializeAssignment(assignment) {
     cap_period: assignment.capPeriod,
     assigned_role: assignment.assignedRole,
     assigned_at: isoDate(assignment.assignedAt),
+    can_log_time: assignment.canLogTime !== false,
     created_at: isoDate(assignment.legacyCreatedAt || assignment.createdAt),
     updated_at: isoDate(assignment.legacyUpdatedAt || assignment.updatedAt),
     deleted_at: isoDate(assignment.legacyDeletedAt),
@@ -511,6 +512,30 @@ async function updateAssignmentsForProject(legacyProjectId, update) {
   await ProjectAssignment.updateMany({ projectId: project._id }, { $set: payload });
 }
 
+async function userTimeByProject(userId, projects) {
+  const projectRows = Array.isArray(projects) ? projects.filter(Boolean) : [];
+  if (!projectRows.length) return new Map();
+
+  const objectIds = projectRows
+    .map((project) => String(project._id || ''))
+    .filter(Boolean)
+    .map((value) => new mongoose.Types.ObjectId(value));
+  if (!objectIds.length) return new Map();
+
+  const { TimeEntry } = require('../MongoModels');
+  const rows = await TimeEntry.aggregate([
+    { $match: { userId, projectId: { $in: objectIds }, status: { $ne: 'rejected' } } },
+    {
+      $group: {
+        _id: '$projectId',
+        totalConsumedMinutes: { $sum: '$durationMinutes' },
+      },
+    },
+  ]);
+
+  return new Map(rows.map((row) => [String(row._id), row]));
+}
+
 async function getUserAssignedProjects(legacyUserId, { page = 1, limit = 10 } = {}) {
   const safeLimit = Math.max(1, Number(limit) || 10);
   const safePage = Math.max(1, Number(page) || 1);
@@ -527,16 +552,30 @@ async function getUserAssignedProjects(legacyUserId, { page = 1, limit = 10 } = 
     ProjectAssignment.countDocuments(query),
   ]);
   const assignedProjects = assignments.map((assignment) => assignment.projectId).filter(Boolean);
-  const [budgetMap, loggedMap] = await Promise.all([
+  const [budgetMap, loggedMap, userTimeMap] = await Promise.all([
     budgetSummaryByProject(assignedProjects),
     loggedSummaryByProject(assignedProjects),
+    userTimeByProject(user._id, assignedProjects),
   ]);
   return {
-    data: assignments.map((assignment) => serializeProject(assignment.projectId, {
-      ...(budgetMap.get(String(assignment.projectId?.legacyId)) || {}),
-      ...(loggedMap.get(String(assignment.projectId?.legacyId)) || {}),
-      assignedUsers: [assignment],
-    })).filter(Boolean),
+    data: assignments.map((assignment) => {
+      const projectData = serializeProject(assignment.projectId, {
+        ...(budgetMap.get(String(assignment.projectId?.legacyId)) || {}),
+        ...(loggedMap.get(String(assignment.projectId?.legacyId)) || {}),
+        assignedUsers: [assignment],
+      });
+      // Override with user-specific pending hours
+      const userTime = userTimeMap.get(String(assignment.projectId?._id)) || {};
+      const userCapMinutes = Number(assignment.hoursCapMinutes || 0);
+      const userConsumedMinutes = Number(userTime.totalConsumedMinutes || 0);
+      const userRemainingMinutes = userCapMinutes > 0 ? Math.max(0, userCapMinutes - userConsumedMinutes) : null;
+      if (userCapMinutes > 0) {
+        projectData.totalAllocatedMinutes = userCapMinutes;
+        projectData.totalConsumedMinutes = userConsumedMinutes;
+        projectData.totalRemainingMinutes = userRemainingMinutes;
+      }
+      return projectData;
+    }).filter(Boolean),
     total: count,
     page: safePage,
   };
