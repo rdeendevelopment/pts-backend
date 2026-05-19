@@ -358,7 +358,7 @@ async function rejectBudgetRequest(actorId, projectId, requestId) {
 
 async function resolveBudgetForTimeEntry(projectId, requestedBudgetId) {
   const normalized = requestedBudgetId === undefined || requestedBudgetId === null || requestedBudgetId === '' ? null : requestedBudgetId;
-  const project = await CoreProject.findOne({ legacyId: Number(projectId) }, { _id: 1 }).lean();
+  const project = await CoreProject.findOne({ legacyId: Number(projectId) }).lean();
   if (!project) return null;
   if (normalized) {
     const budget = await ProjectBudget.findOne({ legacyId: Number(normalized), projectId: project._id, status: { $in: ['active', 'exceeded'] } })
@@ -373,6 +373,34 @@ async function resolveBudgetForTimeEntry(projectId, requestedBudgetId) {
     .lean();
   if (active.length === 1) return serializeBudget(active[0]);
   if (active.length > 1) throw serviceError('Select a budget or phase for this project', 400);
+
+  // Auto-create current month budget for retainer projects if missing
+  const isRetainer = project.projectType === 'retainer' || project.isRetain;
+  const retainerHours = Number(project.retainerHoursPerMonth || 0);
+  if (isRetainer && retainerHours > 0) {
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const monthEnd = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 0));
+    const monthLabel = monthStart.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+
+    const newBudget = await ProjectBudget.create({
+      legacyId: await nextLegacyId(ProjectBudget),
+      projectId: project._id,
+      name: `${monthLabel} Retainer`,
+      description: `Monthly retainer bucket for ${monthLabel}`,
+      budgetType: 'retainer',
+      billingType: 'billable',
+      allocatedMinutes: Math.round(retainerHours * 60),
+      consumedMinutes: 0,
+      startDate: monthStart.toISOString().slice(0, 10),
+      endDate: monthEnd.toISOString().slice(0, 10),
+      allowExceed: true,
+      warningThresholdPercent: 80,
+      status: 'active',
+    });
+    return serializeBudget(newBudget);
+  }
+
   return null;
 }
 
