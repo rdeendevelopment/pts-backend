@@ -9,7 +9,7 @@ const {
 } = require('../../../MongoModels');
 const mongoose = require('mongoose');
 
-const { connectMongo } = require('../../../config/mongo');
+const { connectMongo } = require('../../../../config/mongo');
 const {
   serializeUser,
   serializeClient,
