@@ -1,5 +1,5 @@
 const timeRepo = require('../Repositories/time.repository');
-const budgetService = require('./project-budget.service');
+const budgetService = require('../Modules/projects/services/project-budget.service');
 
 function getActivityCategories() {
   return timeRepo.getActivityCategories();

@@ -1,6 +1,6 @@
 const { TimeEntry } = require('../MongoModels');
 const { mongoose } = require('../../../config/mongo');
-const { labelMinutes } = require('./project-dashboard.service');
+const { labelMinutes } = require('../Modules/projects/services/project-dashboard.service');
 
 async function getTaskTimeSummary(projectId, taskIds = []) {
   const match = { taskId: { $nin: [null, ''] }, status: { $in: ['submitted', 'approved'] } };
