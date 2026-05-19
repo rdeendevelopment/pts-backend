@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const projectRequestController = require('../controllers/project-request.controller');
-const commonValidators = require('../../Validators/commonValidators');
+const commonValidators = require('../../../Validators/commonValidators');
 
 const errorMsgs = commonValidators.responseValidationResults;
 
