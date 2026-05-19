@@ -1,4 +1,4 @@
-const { CoreProject } = require('../MongoModels');
+const { CoreProject } = require('../../../MongoModels');
 const budgetRepo = require('../repositories/budget.repository');
 
 function createInitialProjectBudgets(actorId, projectId, projectType, data, options = {}) {

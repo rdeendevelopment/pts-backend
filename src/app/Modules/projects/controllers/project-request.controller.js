@@ -1,4 +1,4 @@
-const { CoreProject, CoreProjectRequest, CoreUser } = require('../../MongoModels');
+const { CoreProject, CoreProjectRequest, CoreUser } = require('../../../MongoModels');
 const { serializeProjectRequest } = require('../serializers');
 const { validateProjectRequest } = require('../validators');
 

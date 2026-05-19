@@ -394,7 +394,7 @@ async function userTimeByProject(userId, projects) {
     .map((value) => new mongoose.Types.ObjectId(value));
   if (!objectIds.length) return new Map();
 
-  const { TimeEntry } = require('../../MongoModels');
+  const { TimeEntry } = require('../../../MongoModels');
   const rows = await TimeEntry.aggregate([
     { $match: { userId, projectId: { $in: objectIds }, status: { $ne: 'rejected' } } },
     {

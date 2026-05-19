@@ -1,4 +1,4 @@
-const { CoreProject, CoreUser, ProjectAssignment } = require('../../MongoModels');
+const { CoreProject, CoreUser, ProjectAssignment } = require('../../../MongoModels');
 const projectRepo = require('../repositories/project.repository');
 const { createInitialProjectBudgets } = require('./project-budget.service');
 const { serializeAssignment } = require('../serializers');
