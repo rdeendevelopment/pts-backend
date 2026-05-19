@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const projectDashboardController = require('../controllers/project-dashboard.controller');
-const { authenticate, requirePermission } = require('../../Middleware/auth');
+const { authenticate, requirePermission } = require('../../../Middleware/auth');
 
 router.use(authenticate);
 

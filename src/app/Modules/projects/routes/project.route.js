@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const projectController = require('../controllers/project.controller');
-const { authenticate, requireSuperAdmin } = require('../../Middleware/auth');
+const { authenticate, requireSuperAdmin } = require('../../../Middleware/auth');
 
 router.post('/save', projectController.save);
 router.get('/all', projectController.getAllProjects);

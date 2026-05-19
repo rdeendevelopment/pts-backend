@@ -1,4 +1,4 @@
-const reportRepo = require('../../Repositories/report.repository');
+const reportRepo = require('../../../Repositories/report.repository');
 
 function getProjectDashboard(projectId) {
   return reportRepo.getProjectDashboard(projectId);

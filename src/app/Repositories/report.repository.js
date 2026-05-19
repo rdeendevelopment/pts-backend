@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const { ActivityCategory, CoreProject, CoreUser, ProjectAssignment, TimeEntry } = require('../MongoModels');
 const Task = require('../MongoModels/task.model');
-const { getBudgetSummary } = require('../Services/project-budget.service');
+const { getBudgetSummary } = require('../Modules/projects/services/project-budget.service');
 
 function labelMinutes(minutes) {
   const value = Number(minutes || 0);
