@@ -154,6 +154,7 @@ const ProjectAssignmentSchema = new Schema(
     capPeriod:     { type: String, default: 'none' },
     assignedRole:  { type: String, default: null },
     assignedAt:    { type: Date, default: null },
+    canLogTime:    { type: Boolean, default: true },
   },
   { collection: 'project_assignments', timestamps: true }
 );

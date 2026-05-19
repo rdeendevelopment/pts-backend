@@ -176,6 +176,14 @@ async function assertProjectWritableForUser(userId, projectId, durationMinutes =
       }),
   ]);
   if (!project || !assignment) throw serviceError('This project is not active or is not assigned to you. Existing history is view-only.', 403);
+
+  if (assignment.canLogTime === false) {
+    throw serviceError(`Time logging has been disabled for you on "${project.title}".`, 403, {
+      errorCode: 'TIME_LOGGING_DISABLED',
+      projectTitle: project.title,
+    });
+  }
+
   const capMinutes = Number(assignment.hoursCapMinutes || 0);
   if (!capMinutes) return project;
   const match = { userId, projectId: project._id, status: { $ne: 'rejected' } };
