@@ -14,7 +14,9 @@ function buildConnectionOptions(dbName) {
     maxPoolSize: Number(process.env.MONGO_MAX_POOL_SIZE || 20),
     minPoolSize: Number(process.env.MONGO_MIN_POOL_SIZE || 1),
     retryWrites: process.env.MONGO_RETRY_WRITES === 'false' ? false : true,
-    family: 4,
+    ...(process.platform === 'darwin' || process.env.MONGO_FORCE_IPV4 === 'true'
+      ? { family: 4 }
+      : {}),
   };
 }
 

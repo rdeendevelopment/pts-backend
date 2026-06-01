@@ -42,8 +42,10 @@ async function connectMongo() {
     maxPoolSize: Number(process.env.MONGO_MAX_POOL_SIZE || 20),
     minPoolSize: Number(process.env.MONGO_MIN_POOL_SIZE || 1),
     retryWrites: process.env.MONGO_RETRY_WRITES === 'false' ? false : true,
-    // Force IPv4 to avoid Node.js Happy Eyeballs AggregateError on macOS
-    family: 4,
+    // macOS only: force IPv4 to avoid Happy Eyeballs AggregateError (do not set on Linux servers)
+    ...(process.platform === 'darwin' || process.env.MONGO_FORCE_IPV4 === 'true'
+      ? { family: 4 }
+      : {}),
     ...(MONGO_DB ? { dbName: MONGO_DB } : {}),
   };
 

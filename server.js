@@ -68,8 +68,6 @@ app.get("/", (_req, res) =>
 );
 app.get("/healthz", (_req, res) => res.status(200).send("ok"));
 
-connectMongo().catch(() => {});
-
 const v2Api = require("./src/v2");
 app.use("/api/v2", v2Api.router);
 global.__ptsExpressApp = app;
@@ -96,17 +94,26 @@ function registerFallbackRoutes() {
   });
 }
 
-connectMongo().then(async () => {
-  try {
-    await v2Api.bootstrap();
-  } catch (_err) {
-    // bootstrap logs failures
-  } finally {
+connectMongo()
+  .then(async () => {
+    try {
+      await v2Api.bootstrap();
+    } catch (err) {
+      console.error(
+        "[bootstrap] PTS v2 bootstrap failed:",
+        err?.message || err
+      );
+    } finally {
+      registerFallbackRoutes();
+    }
+  })
+  .catch((err) => {
+    console.error(
+      "[bootstrap] MongoDB connection failed — v2 API will return 503 until fixed:",
+      err?.message || err
+    );
     registerFallbackRoutes();
-  }
-}).catch(() => {
-  registerFallbackRoutes();
-});
+  });
 
 const port = normalizePort(constants.APP_PORT);
 app.set("port", port);

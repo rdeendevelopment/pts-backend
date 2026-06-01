@@ -58,8 +58,22 @@ async function assertCanRemoveCollaborator(req, task, targetUserId) {
   return assertCanManageCollaborators(req, task);
 }
 
+async function assertCanCreateTaskOnProject(req, projectId) {
+  if (canManageTasks(req)) return;
+
+  const userId = await resolveUserIdFromAuth(req.v2Auth.accountId);
+  const role = await resolveProjectEditorRole(projectId, userId);
+  if (!canEditProjectWithRole(role)) {
+    throw new AppError('You do not have permission to create tasks on this project', {
+      status: 403,
+      code: taskErrorCodes.TASK_ASSIGNEE_NOT_ON_PROJECT,
+    });
+  }
+}
+
 module.exports = {
   assertTaskReadable,
+  assertCanCreateTaskOnProject,
   assertCanManageCollaborators,
   assertCanRemoveCollaborator,
   assertCanMoveTask,

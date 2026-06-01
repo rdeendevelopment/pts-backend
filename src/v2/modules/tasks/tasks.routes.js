@@ -34,7 +34,10 @@ const {
 const router = Router();
 
 const canViewTasks = authorize(['tasks.view', 'tasks.manage'], { mode: 'any' });
+/** Platform task admins: workflow, members, reports, permanent delete */
 const canManageTasks = authorize('tasks.manage');
+/** Day-to-day task work on assigned projects (guarded by taskAccess + mutation helpers) */
+const canWorkOnTasks = canViewTasks;
 
 router.use(authenticate);
 
@@ -82,7 +85,7 @@ router.delete(
   controller.removeProjectMember
 );
 router.get('/projects/:projectId/tasks/archived', canViewTasks, projectIdRules, validateRequest, assertProjectId, assertProjectTaskAccess, controller.listArchivedTasks);
-router.post('/projects/:projectId/tasks', canManageTasks, createTaskRules, validateRequest, assertProjectId, assertProjectTaskAccess, controller.createTask);
+router.post('/projects/:projectId/tasks', canWorkOnTasks, createTaskRules, validateRequest, assertProjectId, assertProjectTaskAccess, controller.createTask);
 
 router.get('/inbox', canViewTasks, aggregateQueryRules, validateRequest, controller.getInbox);
 router.get('/my-tasks', canViewTasks, aggregateQueryRules, validateRequest, controller.getMyTasks);
@@ -101,11 +104,11 @@ router.get('/reports/project-health', canManageTasks, controller.getProjectHealt
 router.get('/reports', canViewTasks, reportsQueryRules, validateRequest, controller.getReports);
 
 router.get('/tasks/:taskId', canViewTasks, taskIdRules, validateRequest, assertTaskId, controller.getTask);
-router.patch('/tasks/:taskId', canManageTasks, updateTaskRules, validateRequest, assertTaskId, controller.updateTask);
+router.patch('/tasks/:taskId', canWorkOnTasks, updateTaskRules, validateRequest, assertTaskId, controller.updateTask);
 router.patch('/tasks/:taskId/move', canViewTasks, moveTaskRules, validateRequest, assertTaskId, controller.moveTask);
-router.post('/tasks/:taskId/complete', canManageTasks, taskIdRules, validateRequest, assertTaskId, controller.completeTask);
-router.post('/tasks/:taskId/archive', canManageTasks, taskIdRules, validateRequest, assertTaskId, controller.archiveTask);
-router.post('/tasks/:taskId/restore', canManageTasks, taskIdRules, validateRequest, assertTaskId, controller.restoreTask);
+router.post('/tasks/:taskId/complete', canWorkOnTasks, taskIdRules, validateRequest, assertTaskId, controller.completeTask);
+router.post('/tasks/:taskId/archive', canWorkOnTasks, taskIdRules, validateRequest, assertTaskId, controller.archiveTask);
+router.post('/tasks/:taskId/restore', canWorkOnTasks, taskIdRules, validateRequest, assertTaskId, controller.restoreTask);
 router.delete('/tasks/:taskId/permanent', canManageTasks, taskIdRules, validateRequest, assertTaskId, controller.permanentDeleteTask);
 
 router.get('/tasks/:taskId/collaborators', canViewTasks, taskIdRules, validateRequest, assertTaskId, controller.listCollaborators);
@@ -122,10 +125,10 @@ router.delete(
 router.get('/tasks/:taskId/comments', canViewTasks, taskIdRules, validateRequest, assertTaskId, controller.listComments);
 router.post('/tasks/:taskId/comments', canViewTasks, createCommentRules, validateRequest, assertTaskId, controller.createComment);
 router.post('/tasks/:taskId/comment-attachments', canViewTasks, taskIdRules, validateRequest, assertTaskId, controller.uploadCommentAttachment);
-router.post('/tasks/:taskId/attachments', canManageTasks, taskIdRules, validateRequest, assertTaskId, controller.uploadTaskAttachment);
+router.post('/tasks/:taskId/attachments', canWorkOnTasks, taskIdRules, validateRequest, assertTaskId, controller.uploadTaskAttachment);
 router.delete(
   '/tasks/:taskId/attachments/:attachmentId',
-  canManageTasks,
+  canWorkOnTasks,
   [...taskIdRules, ...attachmentIdRules],
   validateRequest,
   assertTaskId,

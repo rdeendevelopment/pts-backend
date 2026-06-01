@@ -10,7 +10,14 @@ const taskAccessService = require('./taskAccess.service');
 const projectsModule = require('../../projects');
 const taskWorkflowService = require('./taskWorkflow.service');
 const taskActivityService = require('./taskActivity.service');
-const { assertCanMoveTask } = require('../helpers/taskCollaboratorAccess.helper');
+const {
+  assertCanMoveTask,
+  assertCanCreateTaskOnProject,
+} = require('../helpers/taskCollaboratorAccess.helper');
+const {
+  assertCanEditTask,
+  assertCanArchiveTask,
+} = require('../helpers/taskMutationAccess.helper');
 const { displayName, resolveUsersByIds, buildAssignees } = require('../helpers/taskUser.helper');
 const userRepository = require('../../users/repositories/user.repository');
 const {
@@ -123,8 +130,11 @@ async function resolveCreatorUserId(accountId) {
   return user._id;
 }
 
-async function createTask(projectId, payload, accountId) {
+async function createTask(projectId, payload, accountId, req) {
   await taskAccessService.assertProjectExists(projectId);
+  if (req) {
+    await assertCanCreateTaskOnProject(req, projectId);
+  }
   const creatorUserId = await resolveCreatorUserId(accountId);
 
   const { statuses, workflow } = await taskWorkflowService.getOrCreateProjectWorkflow(projectId);
@@ -203,10 +213,13 @@ async function getTaskById(taskId) {
   return enrichTask(task);
 }
 
-async function updateTask(taskId, payload, accountId) {
+async function updateTask(taskId, payload, accountId, req) {
   const task = await taskRepository.findById(taskId);
   if (!task) {
     throw new AppError('Task not found', { status: 404, code: taskErrorCodes.TASK_NOT_FOUND });
+  }
+  if (req) {
+    await assertCanEditTask(req, task);
   }
   if (task.status === 'archived') {
     throw new AppError('Archived tasks cannot be edited', {
@@ -321,10 +334,13 @@ async function moveTask(taskId, workflowStatusId, accountId, req) {
   return taskDto;
 }
 
-async function completeTask(taskId, accountId) {
+async function completeTask(taskId, accountId, req) {
   const task = await taskRepository.findById(taskId);
   if (!task) {
     throw new AppError('Task not found', { status: 404, code: taskErrorCodes.TASK_NOT_FOUND });
+  }
+  if (req) {
+    await assertCanEditTask(req, task);
   }
 
   const updated = await taskRepository.updateTask(taskId, {
@@ -346,10 +362,13 @@ async function completeTask(taskId, accountId) {
   return taskDto;
 }
 
-async function archiveTask(taskId, accountId) {
+async function archiveTask(taskId, accountId, req) {
   const task = await taskRepository.findById(taskId);
   if (!task) {
     throw new AppError('Task not found', { status: 404, code: taskErrorCodes.TASK_NOT_FOUND });
+  }
+  if (req) {
+    await assertCanArchiveTask(req, task);
   }
 
   const updated = await taskRepository.updateTask(taskId, {
@@ -370,10 +389,13 @@ async function archiveTask(taskId, accountId) {
   return taskDto;
 }
 
-async function restoreTask(taskId, accountId) {
+async function restoreTask(taskId, accountId, req) {
   const task = await taskRepository.findById(taskId);
   if (!task) {
     throw new AppError('Task not found', { status: 404, code: taskErrorCodes.TASK_NOT_FOUND });
+  }
+  if (req) {
+    await assertCanArchiveTask(req, task);
   }
   if (task.status !== 'archived') {
     throw new AppError('Only archived tasks can be restored', {

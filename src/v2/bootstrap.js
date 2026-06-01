@@ -9,7 +9,17 @@ let bootstrapState = {
   disabled: false,
   bootstrappedAt: null,
   environment: env.nodeEnv,
+  lastError: null,
 };
+
+function recordBootstrapError(err) {
+  if (!err) return;
+  bootstrapState.lastError = {
+    message: err.message || String(err),
+    code: err.code || null,
+    at: new Date().toISOString(),
+  };
+}
 
 function getMongoStatus() {
   return {
@@ -129,9 +139,17 @@ async function bootstrap() {
     };
 
     if (v2Mongo.readyState !== 1) {
+      recordBootstrapError(
+        new Error(
+          'V2 MongoDB connection did not become ready. '
+          + 'Check MONGO_URI, MONGO_V2_DB, Atlas IP allowlist, and server logs.'
+        )
+      );
       warn('PTS v2 bootstrap completed but v2 Mongo is not ready', bootstrapState);
       return bootstrapState;
     }
+
+    bootstrapState.lastError = null;
 
     try {
       await runBootstrapMaintenance();
@@ -159,6 +177,7 @@ async function bootstrap() {
     bootstrapPromise = null;
     bootstrapState.ready = false;
     bootstrapState.disabled = false;
+    recordBootstrapError(err);
     error('PTS v2 bootstrap failed', { message: err.message, stack: err.stack });
     throw err;
   });

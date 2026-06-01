@@ -112,7 +112,7 @@ async function permanentDeleteTask(req, res) {
 
 async function createTask(req, res) {
   const projectId = assertObjectId(req.params.projectId, 'projectId');
-  const data = await taskBoardService.createTask(projectId, req.body, req.v2Auth.accountId);
+  const data = await taskBoardService.createTask(projectId, req.body, req.v2Auth.accountId, req);
   return sendSuccess(res, data, { status: 201 });
 }
 
@@ -124,7 +124,7 @@ async function getTask(req, res) {
 
 async function updateTask(req, res) {
   const taskId = assertObjectId(req.params.taskId, 'taskId');
-  const data = await taskBoardService.updateTask(taskId, req.body, req.v2Auth.accountId);
+  const data = await taskBoardService.updateTask(taskId, req.body, req.v2Auth.accountId, req);
   return sendSuccess(res, data);
 }
 
@@ -151,13 +151,13 @@ async function completeTask(req, res) {
 
 async function archiveTask(req, res) {
   const taskId = assertObjectId(req.params.taskId, 'taskId');
-  const data = await taskBoardService.archiveTask(taskId, req.v2Auth.accountId);
+  const data = await taskBoardService.archiveTask(taskId, req.v2Auth.accountId, req);
   return sendSuccess(res, data);
 }
 
 async function restoreTask(req, res) {
   const taskId = assertObjectId(req.params.taskId, 'taskId');
-  const data = await taskBoardService.restoreTask(taskId, req.v2Auth.accountId);
+  const data = await taskBoardService.restoreTask(taskId, req.v2Auth.accountId, req);
   return sendSuccess(res, data);
 }
 
