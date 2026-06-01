@@ -1,0 +1,21 @@
+{
+  "runId": "6a10393bae81d76994efa40f",
+  "mode": "live",
+  "batchSize": 500,
+  "completedAt": "2026-05-22T11:09:07.708Z",
+  "steps": [
+    {
+      "step": "attachments",
+      "ok": true,
+      "errorCount": 0,
+      "reportPath": "/Users/uilyas/office/projects/pts/development/project-tracking-system-api/src/v2/migration/reports/6a10393bae81d76994efa40f/attachments.json"
+    },
+    {
+      "step": "recalculate",
+      "ok": true,
+      "errorCount": 0,
+      "reportPath": "/Users/uilyas/office/projects/pts/development/project-tracking-system-api/src/v2/migration/reports/6a10393bae81d76994efa40f/recalculate-budgets.json"
+    }
+  ],
+  "totalErrors": 0
+}

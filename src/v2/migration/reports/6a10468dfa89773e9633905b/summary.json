@@ -1,0 +1,15 @@
+{
+  "runId": "6a10468dfa89773e9633905b",
+  "mode": "live",
+  "batchSize": 500,
+  "completedAt": "2026-05-22T12:05:40.816Z",
+  "steps": [
+    {
+      "step": "clients",
+      "ok": true,
+      "errorCount": 0,
+      "reportPath": "/Users/uilyas/office/projects/pts/development/project-tracking-system-api/src/v2/migration/reports/6a10468dfa89773e9633905b/clients.json"
+    }
+  ],
+  "totalErrors": 0
+}

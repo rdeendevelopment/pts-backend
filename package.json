@@ -7,9 +7,27 @@
     "pm2:start": "pm2 start ecosystem.config.cjs --env production",
     "pm2:reload": "pm2 reload pts-api",
     "deploy": "npx nodemon ./server.js",
-    "db:bootstrap": "node ./scripts/bootstrap-data.js"
+    "db:bootstrap": "node ./scripts/bootstrap-data.js",
+    "lint:v2": "eslint \"src/v2/**/*.js\"",
+    "test:v2": "node --test src/v2/**/*.test.js",
+    "v2:seed": "node src/v2/migration/seed/seedAll.js",
+    "v2:migrate:dry-run": "node src/v2/migration/scripts/migrateAll.js --mode=dry-run",
+    "v2:migrate:live": "node src/v2/migration/scripts/migrateAll.js --mode=live",
+    "v2:migrate:users": "node src/v2/migration/scripts/migrateUsers.js --mode=live",
+    "v2:migrate:clients": "node src/v2/migration/scripts/migrateClients.js --mode=live",
+    "v2:migrate:projects": "node src/v2/migration/scripts/migrateProjects.js --mode=live",
+    "v2:migrate:activity": "node src/v2/migration/scripts/migrateActivity.js --mode=live",
+    "v2:migrate:timer-indexes": "node src/v2/modules/activity/scripts/migrateActiveTimerIndexes.js",
+    "v2:migrate:tasks": "node src/v2/migration/scripts/migrateTasks.js --mode=live",
+    "v2:migrate:attachments": "node src/v2/migration/scripts/migrateAttachments.js --mode=live",
+    "v2:migrate:recalculate": "node src/v2/migration/scripts/recalculateProjectBudgets.js --mode=live",
+    "v2:migrate:validate": "node src/v2/migration/scripts/validate.js",
+    "v2:cleanup:legacy-collections": "node src/v2/migration/scripts/cleanupLegacyCollections.js --mode=dry-run",
+    "v2:cleanup:legacy-collections:live": "node src/v2/migration/scripts/cleanupLegacyCollections.js --mode=live"
   },
   "dependencies": {
+    "agenda": "^5.0.0",
+    "agendash": "^4.0.0",
     "axios": "^1.7.9",
     "bcrypt": "^5.1.0",
     "bcryptjs": "^2.4.3",
@@ -17,6 +35,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.0.3",
     "express": "~4.18.2",
+    "express-basic-auth": "^1.2.1",
     "express-fileupload": "^1.4.0",
     "express-group-routes": "^1.1.0",
     "express-validator": "^6.15.0",
@@ -27,7 +46,6 @@
     "mongoose": "^9.4.1",
     "multer": "^1.4.5-lts.1",
     "node": "^19.8.1",
-    "node-cron": "^3.0.2",
     "node-fetch": "^3.3.1",
     "node-yaml-config": "^1.0.0",
     "randomatic": "^3.1.1",
@@ -36,6 +54,7 @@
     "winston": "^3.13.0"
   },
   "devDependencies": {
+    "eslint": "^8.57.0",
     "nodemon": "^2.0.22"
   },
   "engines": {

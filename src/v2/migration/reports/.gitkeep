@@ -1,0 +1,2 @@
+# Migration run reports (JSON) are written here by validate/migrate scripts.
+# This folder is gitignored except this file.

@@ -1,0 +1,21 @@
+{
+  "runId": "6a102ded0c39be69585f0a85",
+  "mode": "dry-run",
+  "batchSize": 500,
+  "transformVersion": "1.0.0",
+  "completedAt": "2026-05-22T10:20:38.891Z",
+  "sourceCount": 8,
+  "targetAccountCount": 1,
+  "targetUserCount": 1,
+  "mappedCount": 8,
+  "mergedCount": 0,
+  "skippedCount": 0,
+  "errorCount": 0,
+  "duplicateEmailCount": 0,
+  "forcedResetCount": 0,
+  "migratedPasswordCount": 8,
+  "missingEmailCount": 0,
+  "roleAssignmentCount": 8,
+  "orphanUserProfiles": 0,
+  "accountWithoutRole": 0
+}

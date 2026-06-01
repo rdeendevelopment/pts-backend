@@ -1,0 +1,14 @@
+{
+  "runId": "6a103716f02e5414ecf43920",
+  "mode": "live",
+  "batchSize": 500,
+  "transformVersion": "1.0.0",
+  "completedAt": "2026-05-22T10:59:35.339Z",
+  "sourceAttachmentCount": 0,
+  "projectAttachmentCount": 0,
+  "targetFileCount": 0,
+  "mappedCount": 0,
+  "skippedCount": 0,
+  "skippedNonProjectCount": 0,
+  "errorCount": 0
+}

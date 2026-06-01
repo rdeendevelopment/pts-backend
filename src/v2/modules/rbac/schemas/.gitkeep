@@ -1,0 +1,6 @@
+/**
+ * Request validation schemas for RBAC routes.
+ * Express-validator rules live in validators/rbac.validators.js.
+ */
+
+module.exports = {};

@@ -1,0 +1,18 @@
+{
+  "runId": "6a1046d1a81bc4e3a66a1889",
+  "mode": "live",
+  "batchSize": 500,
+  "transformVersion": "1.0.0",
+  "completedAt": "2026-05-22T12:07:59.505Z",
+  "sourceProjectCount": 12,
+  "sourceBudgetCount": 12,
+  "sourceAssignmentCount": 32,
+  "targetProjectCount": 12,
+  "targetBudgetCount": 24,
+  "targetAssignmentCount": 31,
+  "mappedProjectCount": 12,
+  "mappedBudgetCount": 12,
+  "mappedAssignmentCount": 32,
+  "skippedCount": 0,
+  "errorCount": 0
+}

@@ -1,0 +1,17 @@
+{
+  "runId": "6a1033196d9c9623433f73bc",
+  "mode": "live",
+  "batchSize": 500,
+  "transformVersion": "1.0.0",
+  "completedAt": "2026-05-22T10:44:24.464Z",
+  "sourceTaskCount": 56,
+  "sourceCommentCount": 25,
+  "sourceActivityCount": 198,
+  "targetTaskCount": 56,
+  "targetCommentCount": 25,
+  "mappedTaskCount": 0,
+  "mappedCommentCount": 25,
+  "mappedActivityCount": 0,
+  "skippedCount": 254,
+  "errorCount": 0
+}

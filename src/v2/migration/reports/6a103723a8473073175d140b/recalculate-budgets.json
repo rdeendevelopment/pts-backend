@@ -1,0 +1,18 @@
+{
+  "runId": "6a103723a8473073175d140b",
+  "mode": "live",
+  "batchSize": 500,
+  "transformVersion": "1.0.0",
+  "completedAt": "2026-05-22T11:00:08.831Z",
+  "projectCount": 12,
+  "recalculatedProjectCount": 12,
+  "updatedBudgetCount": 0,
+  "updatedAssignmentCount": 11,
+  "totalEntryMinutes": 4468,
+  "errorCount": 0,
+  "budgetTotals": {
+    "_id": null,
+    "totalApprovedMinutes": 30000,
+    "totalConsumedMinutes": 4468
+  }
+}

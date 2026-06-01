@@ -1,0 +1,6 @@
+/**
+ * Example Mongoose schemas live here in real modules.
+ * Phase 0 keeps this folder as a structural placeholder.
+ */
+
+module.exports = {};

@@ -1,0 +1,33 @@
+{
+  "runId": "6a10304de8fa89255160c117",
+  "mode": "live",
+  "batchSize": 500,
+  "completedAt": "2026-05-22T10:38:24.408Z",
+  "steps": [
+    {
+      "step": "clients",
+      "ok": true,
+      "errorCount": 0,
+      "reportPath": "/Users/uilyas/office/projects/pts/development/project-tracking-system-api/src/v2/migration/reports/6a10304de8fa89255160c117/clients.json"
+    },
+    {
+      "step": "projects",
+      "ok": true,
+      "errorCount": 0,
+      "reportPath": "/Users/uilyas/office/projects/pts/development/project-tracking-system-api/src/v2/migration/reports/6a10304de8fa89255160c117/projects.json"
+    },
+    {
+      "step": "activity",
+      "ok": true,
+      "errorCount": 0,
+      "reportPath": "/Users/uilyas/office/projects/pts/development/project-tracking-system-api/src/v2/migration/reports/6a10304de8fa89255160c117/activity.json"
+    },
+    {
+      "step": "tasks",
+      "ok": true,
+      "errorCount": 25,
+      "reportPath": "/Users/uilyas/office/projects/pts/development/project-tracking-system-api/src/v2/migration/reports/6a10304de8fa89255160c117/tasks.json"
+    }
+  ],
+  "totalErrors": 25
+}

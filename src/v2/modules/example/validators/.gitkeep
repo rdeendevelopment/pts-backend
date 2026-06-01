@@ -1,0 +1,5 @@
+/**
+ * Example express-validator rules live here in real modules.
+ */
+
+module.exports = {};

@@ -22,10 +22,11 @@ try {
 
   const MONGO_URI   = process.env.MONGO_URI || env?.mongodb?.uri || 'mongodb://127.0.0.1:27017/pts_tasks_dev';
   const MONGO_DB    = process.env.MONGO_DB || env?.mongodb?.db || '';
+  const MONGO_V2_DB = process.env.MONGO_V2_DB || env?.mongodb?.v2Db || '';
   module.exports = {
     HOST_NAME, HOST, APP_ENV, APP_TITLE, APP_PORT, API_VERSION,
     FRONTEND_URL, APP_SECRET, EXPIRE_IN, TIME_ZONE, TIME_ZONE_OFFSET,
-    MONGO_URI, MONGO_DB,
+    MONGO_URI, MONGO_DB, MONGO_V2_DB,
   };
 } catch (error) {
   console.error('error in config constants =>', error);

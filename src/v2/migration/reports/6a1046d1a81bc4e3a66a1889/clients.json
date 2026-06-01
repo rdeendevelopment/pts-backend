@@ -1,0 +1,12 @@
+{
+  "runId": "6a1046d1a81bc4e3a66a1889",
+  "mode": "live",
+  "batchSize": 500,
+  "transformVersion": "1.0.0",
+  "completedAt": "2026-05-22T12:07:09.094Z",
+  "sourceCount": 5,
+  "targetClientCount": 5,
+  "mappedCount": 5,
+  "skippedCount": 0,
+  "errorCount": 0
+}

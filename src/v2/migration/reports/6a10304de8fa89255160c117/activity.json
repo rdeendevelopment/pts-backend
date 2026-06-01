@@ -1,0 +1,17 @@
+{
+  "runId": "6a10304de8fa89255160c117",
+  "mode": "live",
+  "batchSize": 500,
+  "transformVersion": "1.0.0",
+  "completedAt": "2026-05-22T10:33:14.225Z",
+  "sourceWeekCount": 13,
+  "sourceEntryCount": 52,
+  "sourceWorkingHoursCount": 0,
+  "targetWeekCount": 13,
+  "targetEntryCount": 52,
+  "mappedWeekCount": 13,
+  "mappedEntryCount": 52,
+  "skippedCount": 0,
+  "errorCount": 0,
+  "workingHoursExpandedCount": 0
+}
