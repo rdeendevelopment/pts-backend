@@ -9,6 +9,8 @@ module.exports = {
   isSocketReady: socketService.isSocketReady,
   emitToAccount: socketService.emitToAccount,
   emitToUser: socketService.emitToUser,
+  emitToRole: socketService.emitToRole,
+  emitToAdmins: socketService.emitToAdmins,
   emitToProject: socketService.emitToProject,
   emitToTask: socketService.emitToTask,
   emitToConversation: socketService.emitToConversation,

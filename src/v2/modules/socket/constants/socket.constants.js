@@ -4,6 +4,7 @@ const SOCKET_NAMESPACE = '/v2';
 const ROOM_PREFIX = {
   ACCOUNT: 'account',
   USER: 'user',
+  ROLE: 'role',
   PROJECT: 'project',
   TASK: 'task',
   CONVERSATION: 'conversation',

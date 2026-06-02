@@ -5,8 +5,15 @@ const { getV2Model } = require('../../../database/connection');
 const TaskNotificationSchema = new Schema(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'PtsUser', required: true, index: true },
-    taskId: { type: Schema.Types.ObjectId, ref: 'PtsTask', required: true, index: true },
-    projectId: { type: Schema.Types.ObjectId, ref: 'PtsProject', required: true, index: true },
+    taskId: { type: Schema.Types.ObjectId, ref: 'PtsTask', default: null, index: true },
+    projectId: { type: Schema.Types.ObjectId, ref: 'PtsProject', default: null, index: true },
+    activityId: { type: Schema.Types.ObjectId, default: null, index: true },
+    entityType: { type: String, default: null, index: true },
+    entityId: { type: String, default: null, index: true },
+    actorId: { type: Schema.Types.ObjectId, default: null, index: true },
+    actorName: { type: String, default: null },
+    priority: { type: String, default: 'normal', index: true },
+    link: { type: String, default: null },
     type: { type: String, required: true, trim: true },
     title: { type: String, default: null },
     body: { type: String, default: null },

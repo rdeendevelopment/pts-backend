@@ -19,6 +19,7 @@ const {
   buildWeeklyReport,
 } = require('../dto/activity.dto');
 const activitySocketEvents = require('../helpers/activitySocketEvents.helper');
+const taskNotificationService = require('../../tasks/services/taskNotification.service');
 
 async function getWeekOrThrow(weekId) {
   const week = await timeWeekRepository.findById(weekId);
@@ -219,10 +220,21 @@ async function submitWeek(weekId, accountId, req) {
   }
 
   const result = await getWeekById(weekId, req);
-  activitySocketEvents.emitActivityWeekSubmitted(
-    result,
-    [...new Set(entries.map((entry) => String(entry.projectId)))]
-  );
+  const projectIds = [...new Set(entries.map((entry) => String(entry.projectId)))];
+  activitySocketEvents.emitActivityWeekSubmitted(result, projectIds);
+  await taskNotificationService.notifyAdmins({
+    type: 'activity_week_submitted',
+    title: 'Week submitted for review',
+    message: `${req.v2Auth?.displayName || 'A team member'} submitted ${result.weekStartDate} - ${result.weekEndDate}`,
+    entityType: 'activity_week',
+    entityId: String(result.id || week._id),
+    activityId: String(result.id || week._id),
+    projectId: projectIds[0] || null,
+    actorId: accountId,
+    actorName: req.v2Auth?.displayName || '',
+    priority: 'normal',
+    link: '/admin/manage-activity/team-activity',
+  });
   return result;
 }
 
@@ -268,10 +280,22 @@ async function approveWeek(weekId, accountId, req) {
 
   const entries = await timeEntryRepository.listEntries({ timeWeekId: week._id });
   const result = await getWeekById(updated._id, req);
-  activitySocketEvents.emitActivityWeekApproved(
-    result,
-    [...new Set(entries.map((entry) => String(entry.projectId)))]
-  );
+  const projectIds = [...new Set(entries.map((entry) => String(entry.projectId)))];
+  activitySocketEvents.emitActivityWeekApproved(result, projectIds);
+  await taskNotificationService.createAndEmitNotification({
+    userId: week.userId,
+    type: 'activity_week_approved',
+    title: 'Week approved',
+    message: `${req.v2Auth?.displayName || 'Admin'} approved your week ${result.weekStartDate} - ${result.weekEndDate}`,
+    entityType: 'activity_week',
+    entityId: String(result.id || week._id),
+    activityId: String(result.id || week._id),
+    projectId: projectIds[0] || null,
+    actorId: accountId,
+    actorName: req.v2Auth?.displayName || '',
+    priority: 'normal',
+    link: '/user/manage-activity/view-timesheet',
+  });
   return result;
 }
 
@@ -322,10 +346,23 @@ async function rejectWeek(weekId, accountId, req, rejectionReason = null) {
 
   const entries = await timeEntryRepository.listEntries({ timeWeekId: week._id });
   const result = await getWeekById(weekId, req);
-  activitySocketEvents.emitActivityWeekRejected(
-    result,
-    [...new Set(entries.map((entry) => String(entry.projectId)))]
-  );
+  const projectIds = [...new Set(entries.map((entry) => String(entry.projectId)))];
+  activitySocketEvents.emitActivityWeekRejected(result, projectIds);
+  await taskNotificationService.createAndEmitNotification({
+    userId: week.userId,
+    type: 'activity_week_rejected',
+    title: 'Week needs changes',
+    message: `${req.v2Auth?.displayName || 'Admin'} rejected your week ${result.weekStartDate} - ${result.weekEndDate}`,
+    entityType: 'activity_week',
+    entityId: String(result.id || week._id),
+    activityId: String(result.id || week._id),
+    projectId: projectIds[0] || null,
+    actorId: accountId,
+    actorName: req.v2Auth?.displayName || '',
+    priority: 'high',
+    link: '/user/manage-activity/view-timesheet',
+    metadata: { rejectionReason: rejectionReason || null },
+  });
   return result;
 }
 

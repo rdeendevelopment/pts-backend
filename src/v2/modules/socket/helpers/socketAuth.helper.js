@@ -77,6 +77,8 @@ async function authenticateSocketHandshake(handshake) {
     account,
     userId: user ? String(user._id) : null,
     user: user || null,
+    accountType: account.accountType,
+    roles: Array.isArray(payload.roles) ? payload.roles : [],
     displayName,
   };
 }

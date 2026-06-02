@@ -14,6 +14,7 @@ const taskCollaboratorService = require('../services/taskCollaborator.service');
 const taskActivityFeedService = require('../services/taskActivityFeed.service');
 const taskCalendarService = require('../services/taskCalendar.service');
 const taskReportsService = require('../services/taskReports.service');
+const taskTeamDashboardService = require('../services/taskTeamDashboard.service');
 
 async function getBoard(req, res) {
   const projectId = assertObjectId(req.params.projectId, 'projectId');
@@ -260,6 +261,22 @@ async function getProjectHealth(req, res) {
   return sendSuccess(res, items);
 }
 
+async function getTeamDashboard(req, res) {
+  const data = await taskTeamDashboardService.getDashboard(req, req.query);
+  return sendSuccess(res, data);
+}
+
+async function listTeamTasks(req, res) {
+  const data = await taskTeamDashboardService.listTeamTasks(req, req.query);
+  return sendSuccess(res, data);
+}
+
+async function getTeamUserDashboard(req, res) {
+  const userId = assertObjectId(req.params.userId, 'userId');
+  const data = await taskTeamDashboardService.getUserDashboard(req, userId, req.query);
+  return sendSuccess(res, data);
+}
+
 async function getProjectSettings(req, res) {
   const projectId = assertObjectId(req.params.projectId, 'projectId');
   const data = await taskProjectSettingsService.getProjectSettings(projectId, req);
@@ -339,6 +356,9 @@ module.exports = {
   getReports: asyncHandler(getReports),
   getWorkload: asyncHandler(getWorkload),
   getProjectHealth: asyncHandler(getProjectHealth),
+  getTeamDashboard: asyncHandler(getTeamDashboard),
+  listTeamTasks: asyncHandler(listTeamTasks),
+  getTeamUserDashboard: asyncHandler(getTeamUserDashboard),
   getProjectSettings: asyncHandler(getProjectSettings),
   updateProjectSettings: asyncHandler(updateProjectSettings),
   addWorkflowStatus: asyncHandler(addWorkflowStatus),

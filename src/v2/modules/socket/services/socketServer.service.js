@@ -9,6 +9,7 @@ const { authenticateSocketHandshake } = require('../helpers/socketAuth.helper');
 const {
   getAccountRoom,
   getUserRoom,
+  getRoleRoom,
   getProjectRoom,
   getTaskRoom,
   getConversationRoom,
@@ -137,13 +138,24 @@ function registerRoomHandlers(socket) {
 }
 
 function handleConnection(socket) {
-  const { accountId, userId } = socket.v2Auth;
+  const { accountId, userId, accountType, roles = [] } = socket.v2Auth;
+  const joinedRooms = [getAccountRoom(accountId)];
 
   // Every authenticated socket listens on its account channel.
   socket.join(getAccountRoom(accountId));
   if (userId) {
     socket.join(getUserRoom(userId));
+    joinedRooms.push(getUserRoom(userId));
   }
+  const roleKeys = new Set([
+    accountType,
+    ...roles,
+  ].filter(Boolean).map((role) => String(role).toLowerCase().replace(/_/g, '-')));
+  roleKeys.forEach((role) => {
+    const room = getRoleRoom(role);
+    socket.join(room);
+    joinedRooms.push(room);
+  });
 
   presenceService.addConnection({
     socketId: socket.id,
@@ -158,7 +170,7 @@ function handleConnection(socket) {
     socketId: socket.id,
     accountId,
     userId,
-    rooms: [getAccountRoom(accountId), userId ? getUserRoom(userId) : null].filter(Boolean),
+    rooms: joinedRooms,
   });
 
   socket.on('disconnect', () => {

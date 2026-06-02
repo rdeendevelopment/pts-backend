@@ -68,6 +68,33 @@ const reportsQueryRules = [
   query('projectId').optional().isString().notEmpty(),
 ];
 
+const teamDashboardQueryRules = [
+  query('startDate').optional().isISO8601(),
+  query('endDate').optional().isISO8601(),
+  query('clientId').optional().isString().notEmpty(),
+  query('client_id').optional().isString().notEmpty(),
+  query('projectId').optional().isString().notEmpty(),
+  query('department').optional().isString(),
+  query('status').optional().isIn(TASK_STATUSES),
+  query('priority').optional().isIn(TASK_PRIORITIES),
+  query('search').optional().isString(),
+  query('searchUser').optional().isString(),
+  query('userId').optional().isString().notEmpty(),
+  query('assigneeUserId').optional().isString().notEmpty(),
+  query('dueDateFrom').optional().isISO8601().toDate(),
+  query('dueDateTo').optional().isISO8601().toDate(),
+  query('dueDateStart').optional().isISO8601().toDate(),
+  query('dueDateEnd').optional().isISO8601().toDate(),
+];
+
+const teamTasksQueryRules = [
+  ...teamDashboardQueryRules,
+  query('page').optional().isInt({ min: 1 }).toInt(),
+  query('limit').optional().isInt({ min: 1, max: MAX_AGGREGATE_LIMIT }).toInt(),
+  query('sort').optional().isIn(['updatedAt', 'dueDate', 'priority']),
+  query('dir').optional().isIn(['asc', 'desc']),
+];
+
 const notificationIdRules = [
   param('id').isString().notEmpty().withMessage('notification id is required'),
 ];
@@ -168,6 +195,8 @@ module.exports = {
   aggregateQueryRules,
   notificationQueryRules,
   reportsQueryRules,
+  teamDashboardQueryRules,
+  teamTasksQueryRules,
   notificationIdRules,
   attachmentIdRules,
   statusIdRules,

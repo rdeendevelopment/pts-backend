@@ -3,6 +3,7 @@ const socketErrorCodes = require('../errors/socketErrorCodes');
 const {
   getAccountRoom,
   getUserRoom,
+  getRoleRoom,
   getProjectRoom,
   getTaskRoom,
   getConversationRoom,
@@ -53,6 +54,15 @@ function emitToUser(userId, eventName, payload) {
   emitToRoom(getUserRoom(userId), eventName, payload);
 }
 
+function emitToRole(role, eventName, payload) {
+  emitToRoom(getRoleRoom(role), eventName, payload);
+}
+
+function emitToAdmins(eventName, payload) {
+  emitToRole('admin', eventName, payload);
+  emitToRole('super-admin', eventName, payload);
+}
+
 function emitToProject(projectId, eventName, payload) {
   emitToRoom(getProjectRoom(projectId), eventName, payload);
 }
@@ -81,6 +91,8 @@ module.exports = {
   isSocketReady,
   emitToAccount,
   emitToUser,
+  emitToRole,
+  emitToAdmins,
   emitToProject,
   emitToTask,
   emitToConversation,

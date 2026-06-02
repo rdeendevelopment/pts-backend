@@ -16,6 +16,8 @@ const {
   aggregateQueryRules,
   notificationQueryRules,
   reportsQueryRules,
+  teamDashboardQueryRules,
+  teamTasksQueryRules,
   notificationIdRules,
   attachmentIdRules,
   statusIdRules,
@@ -102,6 +104,10 @@ router.get('/calendar', canViewTasks, controller.getCalendar);
 router.get('/reports/workload', canManageTasks, controller.getWorkload);
 router.get('/reports/project-health', canManageTasks, controller.getProjectHealth);
 router.get('/reports', canViewTasks, reportsQueryRules, validateRequest, controller.getReports);
+
+router.get('/team/dashboard', canViewTasks, teamDashboardQueryRules, validateRequest, controller.getTeamDashboard);
+router.get('/team/tasks', canViewTasks, teamTasksQueryRules, validateRequest, controller.listTeamTasks);
+router.get('/team/users/:userId', canViewTasks, teamDashboardQueryRules, validateRequest, controller.getTeamUserDashboard);
 
 router.get('/tasks/:taskId', canViewTasks, taskIdRules, validateRequest, assertTaskId, controller.getTask);
 router.patch('/tasks/:taskId', canWorkOnTasks, updateTaskRules, validateRequest, assertTaskId, controller.updateTask);

@@ -1,6 +1,7 @@
 const { AppError } = require('../../../kernel/errors');
 const { assertObjectId } = require('../../../kernel/validators/objectId');
 const { warn } = require('../../../kernel/logger');
+const accountRepository = require('../../auth/repositories/account.repository');
 const userRepository = require('../../users/repositories/user.repository');
 const taskNotificationRepository = require('../repositories/taskNotification.repository');
 const { findUserIdFromAuth } = require('../helpers/taskAccessScope.helper');
@@ -15,6 +16,25 @@ const { emitNotificationCreated } = require('../../socket/helpers/notificationSo
 function snippet(text, max = 160) {
   const value = String(text || '').trim().replace(/\s+/g, ' ');
   return value.length <= max ? value : `${value.slice(0, max)}…`;
+}
+
+function optionalObjectId(value, fieldName) {
+  if (value == null || value === '') return null;
+  return assertObjectId(value, fieldName);
+}
+
+function notificationLink(payload = {}) {
+  if (payload.link) return payload.link;
+  if (payload.entityType === 'task' && payload.projectId && payload.taskId) {
+    return `/tasks/project/${payload.projectId}?taskId=${payload.taskId}`;
+  }
+  if (payload.entityType === 'activity_week') {
+    return '/admin/manage-activity/team-activity';
+  }
+  if (payload.entityType === 'project' && payload.projectId) {
+    return `/projects/${payload.projectId}`;
+  }
+  return null;
 }
 
 function emptyNotificationPage(query = {}) {
@@ -71,6 +91,66 @@ async function markAllNotificationsRead(req) {
     await taskNotificationRepository.markAllReadByUserId(userId);
   }
   return { success: true };
+}
+
+async function createAndEmitNotification(payload) {
+  if (!payload?.userId || !payload?.type) return null;
+
+  const actorUser = payload.actorId ? await userRepository.findByAccountId(payload.actorId) : null;
+  if (actorUser && String(actorUser._id) === String(payload.userId)) {
+    return null;
+  }
+
+  const notification = await taskNotificationRepository.createNotification({
+    userId: assertObjectId(payload.userId, 'userId'),
+    taskId: optionalObjectId(payload.taskId, 'taskId'),
+    projectId: optionalObjectId(payload.projectId, 'projectId'),
+    activityId: optionalObjectId(payload.activityId, 'activityId'),
+    entityType: payload.entityType || null,
+    entityId: payload.entityId ? String(payload.entityId) : null,
+    actorId: optionalObjectId(payload.actorId, 'actorId'),
+    actorName: payload.actorName || '',
+    priority: payload.priority || 'normal',
+    type: payload.type,
+    title: payload.title || 'Notification',
+    body: payload.message || payload.body || '',
+    isRead: false,
+    link: notificationLink(payload),
+    metadata: {
+      ...(payload.metadata || {}),
+      message: payload.message || payload.body || '',
+      triggeredBy: payload.actorId || null,
+      triggeredByName: payload.actorName || '',
+      link: notificationLink(payload),
+    },
+  });
+
+  const dto = toNotificationDto(notification);
+  emitNotificationCreated({ userId: String(payload.userId), notification: dto });
+  return dto;
+}
+
+async function listAdminUsers() {
+  const accounts = [
+    ...(await accountRepository.findAllByAccountType('admin')),
+    ...(await accountRepository.findAllByAccountType('super_admin')),
+  ];
+  const users = await Promise.all(accounts.map((account) => userRepository.findByAccountId(account._id)));
+  return users.filter(Boolean);
+}
+
+async function notifyAdmins(payload) {
+  const admins = await listAdminUsers();
+  const created = [];
+  for (const admin of admins) {
+    try {
+      const row = await createAndEmitNotification({ ...payload, userId: admin._id });
+      if (row) created.push(row);
+    } catch (err) {
+      warn('Failed to deliver admin notification', { type: payload?.type, message: err.message });
+    }
+  }
+  return created;
 }
 
 async function notifyMention({
@@ -170,6 +250,8 @@ module.exports = {
   getUnreadCount,
   markNotificationRead,
   markAllNotificationsRead,
+  createAndEmitNotification,
+  notifyAdmins,
   notifyMention,
   notifyMentionsOnComment,
 };

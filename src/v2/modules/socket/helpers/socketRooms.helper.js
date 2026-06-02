@@ -15,6 +15,17 @@ function getUserRoom(userId) {
   return `${ROOM_PREFIX.USER}:${toIdString(userId, 'userId')}`;
 }
 
+function getRoleRoom(role) {
+  const value = String(role || '').trim().toLowerCase().replace(/_/g, '-');
+  if (!value) {
+    throw new AppError('Invalid socket role room', {
+      status: 400,
+      code: socketErrorCodes.SOCKET_ROOM_INVALID,
+    });
+  }
+  return `${ROOM_PREFIX.ROLE}:${value}`;
+}
+
 function getProjectRoom(projectId) {
   return `${ROOM_PREFIX.PROJECT}:${toIdString(projectId, 'projectId')}`;
 }
@@ -52,6 +63,7 @@ function assertKnownRoom(roomName) {
 module.exports = {
   getAccountRoom,
   getUserRoom,
+  getRoleRoom,
   getProjectRoom,
   getTaskRoom,
   getConversationRoom,
