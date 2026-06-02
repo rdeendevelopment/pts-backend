@@ -18,7 +18,14 @@ const {
   assertCanEditTask,
   assertCanArchiveTask,
 } = require('../helpers/taskMutationAccess.helper');
-const { displayName, resolveUsersByIds, buildAssignees } = require('../helpers/taskUser.helper');
+const {
+  displayName,
+  resolveUsersByIds,
+  resolveAuthorsByAccountIds,
+  authorFieldsFromMap,
+  buildAssignees,
+} = require('../helpers/taskUser.helper');
+const { deriveTaskKeyPrefix } = require('../helpers/taskKeyPrefix.helper');
 const userRepository = require('../../users/repositories/user.repository');
 const {
   toTaskDto,
@@ -40,15 +47,24 @@ const {
   deleteTaskFilesBestEffort,
 } = require('../helpers/taskPermanentDelete.helper');
 
-async function enrichTask(task) {
+async function enrichTask(task, projectHint = null) {
   if (!task) return null;
   const doc = task.toObject ? task.toObject() : task;
+  const project = projectHint || await taskAccessService.assertProjectExists(doc.projectId);
+  const taskKeyPrefix = deriveTaskKeyPrefix(project.name, project.code);
+
   const userIds = [
     ...(doc.assignees || []).map((a) => a.userId),
-    doc.createdBy,
     doc.reviewerId,
   ].filter(Boolean);
   const userMap = await resolveUsersByIds(userIds.map(String));
+
+  const accountIds = [doc.createdBy, doc.completedBy].filter(Boolean).map(String);
+  const authorMap = await resolveAuthorsByAccountIds(accountIds);
+  const creatorFields = doc.createdBy
+    ? authorFieldsFromMap(authorMap, doc.createdBy)
+    : { authorName: null, authorEmail: null };
+
   const assignees = (doc.assignees || []).map((a) => {
     const user = userMap[String(a.userId)];
     return {
@@ -60,7 +76,10 @@ async function enrichTask(task) {
   return toTaskDto({
     ...doc,
     assignees,
-  });
+    taskKeyPrefix,
+    createdByName: creatorFields.authorName,
+    createdByEmail: creatorFields.authorEmail,
+  }, { taskKeyPrefix });
 }
 
 async function getProjectBoard(projectId, filters = {}) {
@@ -89,14 +108,16 @@ async function getProjectBoard(projectId, filters = {}) {
 
   const enrichedBoard = {};
   for (const [statusId, list] of Object.entries(board)) {
-    enrichedBoard[statusId] = await Promise.all(list.map((task) => enrichTask(task)));
+    enrichedBoard[statusId] = await Promise.all(list.map((task) => enrichTask(task, project)));
   }
 
+  const taskKeyPrefix = deriveTaskKeyPrefix(project.name, project.code);
   return {
     project: {
       id: String(project._id),
       name: project.name,
       status: project.status,
+      taskKeyPrefix,
     },
     workflow: toWorkflowDto(workflow),
     statuses: statuses.map(toWorkflowStatusDto),

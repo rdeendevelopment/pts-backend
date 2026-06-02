@@ -430,14 +430,29 @@ async function listProjects(query = {}, req = null) {
   };
 }
 
-async function getProjectById(projectId) {
+async function getProjectById(projectId, req = null) {
   await retainerRenewalService.ensureRetainerBudgetOnAccess(projectId);
   const project = await getProjectOrThrow(projectId);
   const stats = await projectStatsService.getStats(project._id);
-  return {
+  const dto = {
     ...toProjectDto(project),
     stats: require('../dto/project.dto').toProjectStatsDto(stats),
   };
+
+  if (req?.v2Auth?.accountId) {
+    const assignedUserId = await resolveUserIdFromAuth(req.v2Auth.accountId);
+    if (assignedUserId) {
+      const assignment = await projectAssignmentRepository.findByProjectAndUser(
+        project._id,
+        assignedUserId,
+      );
+      if (assignment && !assignment.isDeleted && assignment.status === 'active') {
+        dto.myAssignment = toProjectAssignmentDto(assignment);
+      }
+    }
+  }
+
+  return dto;
 }
 
 async function createProject(payload, accountId, req = null) {

@@ -10,7 +10,7 @@ async function listProjects(req, res) {
 
 async function getProjectById(req, res) {
   const projectId = assertObjectId(req.params.id, 'id');
-  const data = await projectService.getProjectById(projectId);
+  const data = await projectService.getProjectById(projectId, req);
   return sendSuccess(res, data);
 }
 

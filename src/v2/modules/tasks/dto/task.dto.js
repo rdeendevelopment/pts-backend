@@ -1,13 +1,19 @@
-function toTaskDto(task) {
+const { formatTaskDisplayId } = require('../helpers/taskKeyPrefix.helper');
+
+function toTaskDto(task, { taskKeyPrefix } = {}) {
   if (!task) return null;
   const doc = task.toObject ? task.toObject() : task;
+  const prefix = taskKeyPrefix || doc.taskKeyPrefix || null;
+  const taskNumber = doc.taskNumber;
   return {
     id: String(doc._id),
     projectId: String(doc.projectId),
     workflowId: String(doc.workflowId),
     workflowStatusId: String(doc.workflowStatusId),
     workflowOrder: doc.workflowOrder,
-    taskNumber: doc.taskNumber,
+    taskNumber,
+    taskKeyPrefix: prefix,
+    taskDisplayId: formatTaskDisplayId(prefix, taskNumber),
     title: doc.title,
     description: doc.description,
     priority: doc.priority,
@@ -31,6 +37,8 @@ function toTaskDto(task) {
     completedBy: doc.completedBy ? String(doc.completedBy) : null,
     archivedAt: doc.archivedAt,
     createdBy: doc.createdBy ? String(doc.createdBy) : null,
+    createdByName: doc.createdByName || null,
+    createdByEmail: doc.createdByEmail || null,
     updatedBy: doc.updatedBy ? String(doc.updatedBy) : null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
