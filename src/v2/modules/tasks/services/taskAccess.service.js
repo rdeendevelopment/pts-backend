@@ -4,6 +4,11 @@ const userRepository = require('../../users/repositories/user.repository');
 const projectAssignmentRepository = require('../../projects/repositories/projectAssignment.repository');
 const taskErrorCodes = require('../errors/taskErrorCodes');
 const { canManageTasks, resolveUserIdFromAuth } = require('../helpers/taskAccessScope.helper');
+const {
+  isBoardShareClientUser,
+  assertClientBoardShare,
+  BOARD_SHARE_ACTIONS,
+} = require('../helpers/taskBoardShareAccess.helper');
 const taskMemberRepository = require('../repositories/taskMember.repository');
 const { displayName, resolveUsersByIds } = require('../helpers/taskUser.helper');
 const { mapAssignmentRoleToTaskRole } = require('../helpers/taskMemberRole.helper');
@@ -12,8 +17,16 @@ async function assertProjectExists(projectId) {
   return projectsModule.getProjectForActivity(projectId);
 }
 
-async function assertCanAccessProjectForTasks(req, projectId) {
+async function assertCanAccessProjectForTasks(req, projectId, {
+  boardShareAction = BOARD_SHARE_ACTIONS.VIEW_BOARD,
+} = {}) {
   const project = await assertProjectExists(projectId);
+
+  if (req && isBoardShareClientUser(req)) {
+    await assertClientBoardShare(req, projectId, boardShareAction);
+    return project;
+  }
+
   if (!req?.v2Auth?.accountId || canManageTasks(req)) {
     return project;
   }

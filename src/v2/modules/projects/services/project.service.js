@@ -19,7 +19,13 @@ const {
 const { validateBudgetTypeForProject, resolveInitialBudgetStatus } = require('../helpers/budget.helper');
 const { syncBudgetCanonicalFields } = require('../helpers/budgetCapacity.helper');
 const { clampRenewalDay } = require('../helpers/retainerPeriod.helper');
-const { decodeCursor, encodeCursor, parseLimit } = require('../helpers/pagination.helper');
+const {
+  decodeCursor,
+  encodeCursor,
+  parseLimit,
+  parsePage,
+  buildPaginationMeta,
+} = require('../helpers/pagination.helper');
 const { projectHasActiveActivity } = require('../helpers/activityGuard.helper');
 const clientRepository = require('../../clients/repositories/client.repository');
 const projectRepository = require('../repositories/project.repository');
@@ -36,6 +42,7 @@ const {
   toProjectListItemDto,
   toProjectAssignmentDto,
 } = require('../dto/project.dto');
+const { info } = require('../../../kernel/logger');
 
 function assertValidStatus(status) {
   if (!PROJECT_STATUSES.includes(status)) {
@@ -346,11 +353,14 @@ async function resolveListProjectsAssignedUserId(query = {}, req = null) {
 }
 
 async function listProjects(query = {}, req = null) {
+  const startedAt = Date.now();
   const limit = parseLimit(query.limit, {
     defaultLimit: DEFAULT_LIST_LIMIT,
     maxLimit: MAX_LIST_LIMIT,
   });
+  const page = parsePage(query.page);
   const cursor = decodeCursor(query.cursor);
+  const useCursor = Boolean(query.cursor);
   const includeDeleted = String(query.include_deleted || query.includeDeleted || '').toLowerCase() === 'true';
   const assignedUserId = await resolveListProjectsAssignedUserId(query, req);
 
@@ -358,10 +368,22 @@ async function listProjects(query = {}, req = null) {
   if (assignedUserId) {
     projectIds = await projectAssignmentRepository.listActiveProjectIdsByUserId(assignedUserId);
     if (!projectIds.length) {
+      info('projects.list.completed', {
+        projectCount: 0,
+        cachedStatsFound: 0,
+        missingStatsCount: 0,
+        fallbackRecalculationUsed: false,
+        fallbackRecalculated: 0,
+        durationMs: Date.now() - startedAt,
+      });
       return {
         items: [],
         pagination: {
+          page,
           limit,
+          total: 0,
+          totalPages: 0,
+          hasMore: false,
           has_more: false,
           next_cursor: null,
         },
@@ -372,26 +394,55 @@ async function listProjects(query = {}, req = null) {
   const loggableOnly = ['true', '1'].includes(
     String(query.loggable_only || query.loggableOnly || '').toLowerCase()
   );
-  const listStatus = loggableOnly ? 'active' : (query.status || null);
+  const rawStatus = loggableOnly ? 'active' : (query.status || null);
+  let listStatus = rawStatus;
+  let statusIn = null;
+  if (rawStatus === 'archived') {
+    listStatus = null;
+    statusIn = ['archived', 'cancelled'];
+  }
 
-  const { items, nextCursor, hasMore } = await projectRepository.listProjects(
-    {
-      search: query.search,
-      clientId: query.client_id || query.clientId,
-      status: listStatus,
-      type: query.type,
-      billingType: query.billing_type || query.billingType,
-      priority: query.priority,
-      tag: query.tag,
-      includeDeleted,
-      projectIds,
-    },
-    { limit, cursor }
+  const filters = {
+    search: query.search,
+    clientId: query.client_id || query.clientId,
+    status: listStatus,
+    statusIn,
+    type: query.type,
+    billingType: query.billing_type || query.billingType,
+    priority: query.priority,
+    tag: query.tag,
+    includeDeleted,
+    projectIds,
+  };
+
+  const sortBy = query.sort_by || query.sortBy || null;
+  const sortOrder = query.sort_order || query.sortOrder || null;
+  const sort = projectRepository.resolveListSort(sortBy, sortOrder);
+  const includeSummary = ['true', '1'].includes(
+    String(query.include_summary || query.includeSummary || '').toLowerCase()
   );
 
-  const statsRows = await Promise.all(
-    items.map((item) => projectStatsService.recalculateStats(item._id))
-  );
+  const listResult = useCursor
+    ? await projectRepository.listProjects(filters, { limit, cursor, sort })
+    : await projectRepository.listProjectsPage(filters, {
+      limit,
+      skip: (page - 1) * limit,
+      sort,
+    });
+  const { items } = listResult;
+  const nextCursor = useCursor
+    ? listResult.nextCursor
+    : (listResult.total > page * limit ? items[items.length - 1] : null);
+  const hasMore = useCursor ? listResult.hasMore : listResult.total > page * limit;
+
+  const listProjectIds = items.map((item) => item._id);
+  const {
+    statsByProjectId,
+    cachedFound,
+    missingCount,
+    fallbackRecalculated,
+  } = await projectStatsService.resolveStatsForList(listProjectIds);
+  const statsRows = items.map((item) => statsByProjectId.get(String(item._id)) || null);
 
   const clientIds = [...new Set(items.map((item) => item.clientId).filter(Boolean))];
   const clientRows = clientIds.length
@@ -412,6 +463,23 @@ async function listProjects(query = {}, req = null) {
     });
   }
 
+  const teamSummaryByProjectId = await projectAssignmentRepository
+    .listActiveMemberSummariesByProjectIds(listProjectIds, { sampleSize: 4 });
+
+  const summary = includeSummary
+    ? await projectRepository.getPortfolioSummary(filters)
+    : null;
+
+  info('projects.list.completed', {
+    projectCount: items.length,
+    cachedStatsFound: cachedFound,
+    missingStatsCount: missingCount,
+    fallbackRecalculationUsed: fallbackRecalculated > 0,
+    fallbackRecalculated,
+    durationMs: Date.now() - startedAt,
+    includeSummary,
+  });
+
   return {
     items: items.map((item, index) => {
       const client = clientById.get(String(item.clientId)) || null;
@@ -420,13 +488,29 @@ async function listProjects(query = {}, req = null) {
       if (myAssignment) {
         dto.myAssignment = toProjectAssignmentDto(myAssignment);
       }
+      const teamSummary = teamSummaryByProjectId.get(String(item._id));
+      if (teamSummary) {
+        dto.teamSummary = teamSummary;
+      } else {
+        dto.teamSummary = { totalMembers: statsRows[index]?.totalMembers || 0, members: [] };
+      }
       return dto;
     }),
     pagination: {
+      ...(useCursor
+        ? {}
+        : buildPaginationMeta({
+          page,
+          limit,
+          total: listResult.total,
+          nextCursor: nextCursor ? encodeCursor(nextCursor) : null,
+        })),
       limit,
       has_more: hasMore,
+      hasMore,
       next_cursor: nextCursor ? encodeCursor(nextCursor) : null,
     },
+    ...(summary ? { summary } : {}),
   };
 }
 

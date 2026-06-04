@@ -22,7 +22,12 @@ const listRules = [
   query('managerId').optional().isString().withMessage('managerId must be a string'),
   query('manager_id').optional().isString().withMessage('manager_id must be a string'),
   query('cursor').optional().isString().withMessage('cursor must be a string'),
+  query('page').optional().isInt({ min: 1 }).withMessage('page must be a positive integer'),
   query('limit').optional().isInt({ min: 1, max: MAX_LIST_LIMIT }).withMessage(`limit must be between 1 and ${MAX_LIST_LIMIT}`),
+  query('sort_by').optional().isString().withMessage('sort_by must be a string'),
+  query('sortBy').optional().isString().withMessage('sortBy must be a string'),
+  query('sort_order').optional().isIn(['asc', 'desc']).withMessage('sort_order must be asc or desc'),
+  query('sortOrder').optional().isIn(['asc', 'desc']).withMessage('sortOrder must be asc or desc'),
   query('includeRoles').optional().isIn(['true', 'false']).withMessage('includeRoles must be true or false'),
   query('include_roles').optional().isIn(['true', 'false']).withMessage('include_roles must be true or false'),
 ];
@@ -61,6 +66,10 @@ const createRules = [
   body('joining_date').optional().isISO8601().withMessage('joining_date must be a valid date'),
   body('timezone').optional().isString().withMessage('timezone must be a string'),
   body('notes').optional().isString().withMessage('notes must be a string'),
+  body('accountType').optional().isString().withMessage('accountType must be a string'),
+  body('account_type').optional().isString().withMessage('account_type must be a string'),
+  body('clientId').optional().isString().withMessage('clientId must be a string'),
+  body('client_id').optional().isString().withMessage('client_id must be a string'),
   body().custom((value) => {
     const firstName = value.firstName || value.first_name;
     const lastName = value.lastName || value.last_name;

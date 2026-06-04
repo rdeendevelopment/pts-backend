@@ -11,6 +11,8 @@ function toAccountDto(account) {
     last_name: row.lastName,
     status: row.status,
     account_type: row.accountType,
+    client_id: row.clientId ? String(row.clientId) : null,
+    clientId: row.clientId ? String(row.clientId) : null,
     last_login_at: row.lastLoginAt || null,
     created_at: row.createdAt || null,
     updated_at: row.updatedAt || null,

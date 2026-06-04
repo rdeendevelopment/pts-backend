@@ -18,7 +18,7 @@ const taskTeamDashboardService = require('../services/taskTeamDashboard.service'
 
 async function getBoard(req, res) {
   const projectId = assertObjectId(req.params.projectId, 'projectId');
-  const data = await taskBoardService.getProjectBoard(projectId, req.query);
+  const data = await taskBoardService.getProjectBoard(projectId, req.query, req);
   return sendSuccess(res, data);
 }
 
@@ -30,8 +30,8 @@ async function getWorkflow(req, res) {
 
 async function listArchivedTasks(req, res) {
   const projectId = assertObjectId(req.params.projectId, 'projectId');
-  const items = await taskBoardService.listArchivedTasks(projectId);
-  return sendSuccess(res, { items });
+  const data = await taskBoardService.listArchivedTasks(projectId, req.query);
+  return sendSuccess(res, data);
 }
 
 async function listMembers(req, res) {
@@ -119,7 +119,7 @@ async function createTask(req, res) {
 
 async function getTask(req, res) {
   const taskId = assertObjectId(req.params.taskId, 'taskId');
-  const data = await taskBoardService.getTaskById(taskId);
+  const data = await taskBoardService.getTaskById(taskId, req);
   return sendSuccess(res, data);
 }
 
@@ -233,6 +233,12 @@ async function uploadCommentAttachment(req, res) {
 
 async function getActivity(req, res) {
   const items = await taskActivityFeedService.getActivityFeed(req);
+  return sendSuccess(res, items);
+}
+
+async function getTaskActivity(req, res) {
+  const taskId = assertObjectId(req.params.taskId, 'taskId');
+  const items = await taskActivityFeedService.getActivityForTask(req, taskId);
   return sendSuccess(res, items);
 }
 
@@ -351,6 +357,7 @@ module.exports = {
   uploadCommentAttachment: asyncHandler(uploadCommentAttachment),
   deleteTaskAttachment: asyncHandler(deleteTaskAttachment),
   getActivity: asyncHandler(getActivity),
+  getTaskActivity: asyncHandler(getTaskActivity),
   getActivitySummary: asyncHandler(getActivitySummary),
   getCalendar: asyncHandler(getCalendar),
   getReports: asyncHandler(getReports),

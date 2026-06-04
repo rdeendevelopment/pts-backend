@@ -53,6 +53,22 @@ async function listUsers(filters = {}, { limit = 20, cursor = null } = {}) {
   return { items, nextCursor, hasMore };
 }
 
+async function listUsersPage(filters = {}, { limit = 20, skip = 0, sort = { createdAt: -1, _id: -1 } } = {}) {
+  const User = getUserModel();
+  const query = buildListQuery(filters);
+
+  const [items, total] = await Promise.all([
+    User.find(query)
+      .sort(sort)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    User.countDocuments(query),
+  ]);
+
+  return { items, total };
+}
+
 async function findById(userId) {
   const User = getUserModel();
   return User.findOne({ _id: userId, isDeleted: false }).exec();
@@ -139,6 +155,7 @@ async function clearManagerForDirectReports(userId) {
 
 module.exports = {
   listUsers,
+  listUsersPage,
   findById,
   findByAccountId,
   findByEmail,

@@ -3,6 +3,8 @@ const taskErrorCodes = require('../errors/taskErrorCodes');
 const taskAccessService = require('../services/taskAccess.service');
 const { assertTaskReadable } = require('./taskCollaboratorAccess.helper');
 const { canManageTasks, resolveUserIdFromAuth } = require('./taskAccessScope.helper');
+const { assertCanCommentOnTask, assertCanEditTask } = require('./taskMutationAccess.helper');
+const { isBoardShareClientUser } = require('./taskBoardShareAccess.helper');
 
 async function assertCanModifyAttachments(req, task) {
   if (!task) {
@@ -23,6 +25,11 @@ async function assertCanModifyAttachments(req, task) {
     return;
   }
 
+  if (isBoardShareClientUser(req)) {
+    await assertCanEditTask(req, task);
+    return;
+  }
+
   const userId = await resolveUserIdFromAuth(req.v2Auth.accountId);
   await taskAccessService.assertUserHasProjectAccess(task.projectId, userId);
 }
@@ -40,6 +47,11 @@ async function assertCanUploadCommentAttachment(req, task) {
       status: 409,
       code: taskErrorCodes.TASK_INVALID_STATUS,
     });
+  }
+
+  if (isBoardShareClientUser(req)) {
+    await assertCanCommentOnTask(req, task);
+    return;
   }
 
   await assertTaskReadable(req, task);

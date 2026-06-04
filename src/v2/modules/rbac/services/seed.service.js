@@ -145,6 +145,7 @@ async function seedRbac() {
   await assignRoleToAccountsByType('admin', 'admin');
   await assignRoleToAccountsByType('manager', 'manager');
   await assignRoleToAccountsByType('employee', 'employee');
+  await assignRoleToAccountsByType('client', 'client');
 
   info('PTS v2 RBAC seed completed', summary);
   return summary;

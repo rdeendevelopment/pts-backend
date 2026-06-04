@@ -13,7 +13,13 @@ const {
   normalizeTags,
 } = require('../helpers/client.helper');
 const { clientHasActiveProjects } = require('../helpers/projectGuard.helper');
-const { decodeCursor, encodeCursor, parseLimit } = require('../helpers/pagination.helper');
+const {
+  decodeCursor,
+  encodeCursor,
+  parseLimit,
+  parsePage,
+  buildPaginationMeta,
+} = require('../helpers/pagination.helper');
 const clientRepository = require('../repositories/client.repository');
 const { toClientDto } = require('../dto/client.dto');
 
@@ -167,6 +173,26 @@ function buildClientPayload(payload, { forUpdate = false } = {}) {
   return data;
 }
 
+function resolveListSort(query = {}) {
+  const rawField = String(query.sort_by || query.sortBy || '').trim();
+  const rawOrder = String(query.sort_order || query.sortOrder || '').toLowerCase();
+  const direction = rawOrder === 'asc' ? 1 : -1;
+  const sortMap = {
+    client_identity: 'name',
+    company_name: 'name',
+    name: 'name',
+    email: 'email',
+    status: 'status',
+    type: 'type',
+    created_at: 'createdAt',
+    createdAt: 'createdAt',
+    updated_at: 'updatedAt',
+    updatedAt: 'updatedAt',
+  };
+  const field = sortMap[rawField] || 'updatedAt';
+  return { [field]: direction, _id: direction };
+}
+
 async function listClients(query = {}) {
   const limit = parseLimit(query.limit, {
     defaultLimit: DEFAULT_LIST_LIMIT,
@@ -175,15 +201,33 @@ async function listClients(query = {}) {
   const cursor = decodeCursor(query.cursor);
   const includeDeleted = String(query.include_deleted || query.includeDeleted || '').toLowerCase() === 'true';
 
+  const filters = {
+    search: query.search,
+    status: query.status,
+    type: query.type,
+    industry: query.industry,
+    tag: query.tag,
+    includeDeleted,
+  };
+
+  const pageRequested = query.page !== undefined && query.page !== null && query.page !== '';
+
+  if (pageRequested && !query.cursor) {
+    const page = parsePage(query.page);
+    const { items, total } = await clientRepository.listClientsPage(filters, {
+      limit,
+      skip: (page - 1) * limit,
+      sort: resolveListSort(query),
+    });
+
+    return {
+      items: items.map(toClientDto),
+      pagination: buildPaginationMeta({ page, limit, total }),
+    };
+  }
+
   const { items, nextCursor, hasMore } = await clientRepository.listClients(
-    {
-      search: query.search,
-      status: query.status,
-      type: query.type,
-      industry: query.industry,
-      tag: query.tag,
-      includeDeleted,
-    },
+    filters,
     { limit, cursor }
   );
 

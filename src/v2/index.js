@@ -18,6 +18,7 @@ const socketModule = require('./modules/socket');
 const reportsModule = require('./modules/reports');
 const converseModule = require('./modules/converse');
 const announcementsModule = require('./modules/announcements');
+const boardSharesModule = require('./modules/board-shares');
 const schedulerModule = require('./modules/scheduler');
 const uploadsRoutes = require('./routes/uploads.routes');
 const { bootstrap, getBootstrapState } = require('./bootstrap');
@@ -65,6 +66,7 @@ if (env.v2.enabled) {
   router.use('/projects', projectsModule.routes);
   router.use('/activity', activityModule.routes);
   router.use('/tasks', tasksModule.routes);
+  router.use('/board-shares', boardSharesModule.routes);
   router.use('/socket', socketModule.routes);
   router.use('/reports', reportsModule.routes);
   router.use('/converse', converseModule.routes);

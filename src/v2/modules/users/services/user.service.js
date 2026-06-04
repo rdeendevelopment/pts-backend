@@ -9,8 +9,15 @@ const {
 } = require('../constants/users.constants');
 const userErrorCodes = require('../errors/userErrorCodes');
 const { buildDisplayName } = require('../helpers/displayName.helper');
-const { decodeCursor, encodeCursor, parseLimit } = require('../helpers/pagination.helper');
+const {
+  decodeCursor,
+  encodeCursor,
+  parseLimit,
+  parsePage,
+  buildPaginationMeta,
+} = require('../helpers/pagination.helper');
 const accountRepository = require('../../auth/repositories/account.repository');
+const clientRepository = require('../../clients/repositories/client.repository');
 const passwordService = require('../../auth/services/password.service');
 const userRepository = require('../repositories/user.repository');
 const rbacAccessService = require('../../rbac/services/rbacAccess.service');
@@ -132,6 +139,24 @@ async function assertUsernameAvailable(username, { excludeAccountId = null, excl
   }
 }
 
+function resolveAccountType(payload) {
+  return String(payload.accountType || payload.account_type || 'employee').trim().toLowerCase();
+}
+
+async function resolveClientIdForAccountType(accountType, rawClientId) {
+  if (accountType !== 'client') return null;
+  const clientId = assertObjectId(rawClientId, 'clientId');
+  const client = await clientRepository.findById(clientId);
+  if (!client || client.isDeleted) {
+    throw new AppError('Client not found', {
+      status: 404,
+      code: userErrorCodes.USER_INVALID_STATUS,
+      details: { clientId: String(clientId) },
+    });
+  }
+  return clientId;
+}
+
 async function resolveAccountForCreate(payload) {
   if (payload.accountId || payload.account_id) {
     const accountId = payload.accountId || payload.account_id;
@@ -182,6 +207,19 @@ async function resolveAccountForCreate(payload) {
   const lastName = String(payload.lastName || payload.last_name).trim();
   const passwordHash = await passwordService.hashPassword(payload.password);
   const status = payload.status && USER_STATUSES.includes(payload.status) ? payload.status : 'active';
+  const accountType = resolveAccountType(payload);
+  const clientId = await resolveClientIdForAccountType(
+    accountType,
+    payload.clientId || payload.client_id,
+  );
+
+  if (accountType === 'client' && !clientId) {
+    throw new AppError('clientId is required for client accounts', {
+      status: 400,
+      code: userErrorCodes.USER_INVALID_STATUS,
+      details: { field: 'clientId' },
+    });
+  }
 
   return accountRepository.createAccount({
     username,
@@ -190,7 +228,8 @@ async function resolveAccountForCreate(payload) {
     firstName,
     lastName,
     status,
-    accountType: payload.accountType || payload.account_type || 'employee',
+    accountType,
+    clientId,
   });
 }
 
@@ -296,6 +335,42 @@ function buildUserPayload(payload, account, { forUpdate = false } = {}) {
   return data;
 }
 
+function resolveListSort(query = {}) {
+  const rawField = String(query.sort_by || query.sortBy || '').trim();
+  const rawOrder = String(query.sort_order || query.sortOrder || '').toLowerCase();
+  const direction = rawOrder === 'asc' ? 1 : -1;
+  const sortMap = {
+    user_identity: 'displayName',
+    display_name: 'displayName',
+    displayName: 'displayName',
+    name: 'displayName',
+    user_name: 'username',
+    username: 'username',
+    email: 'email',
+    status: 'status',
+    created_at: 'createdAt',
+    createdAt: 'createdAt',
+  };
+  const field = sortMap[rawField] || 'createdAt';
+  return { [field]: direction, _id: direction };
+}
+
+async function enrichUserRows(items, includeRoles) {
+  let mappedItems = items.map(toUserDto);
+
+  if (includeRoles && mappedItems.length) {
+    const rolesByAccountId = await rbacAccessService.getSessionRolesForAccounts(
+      mappedItems.map((row) => row.account_id)
+    );
+    mappedItems = mappedItems.map((row) => ({
+      ...row,
+      roles: rolesByAccountId.get(String(row.account_id)) || [],
+    }));
+  }
+
+  return mappedItems;
+}
+
 async function listUsers(query = {}) {
   const limit = parseLimit(query.limit, {
     defaultLimit: DEFAULT_LIST_LIMIT,
@@ -315,23 +390,27 @@ async function listUsers(query = {}) {
     filters.managerId = assertObjectId(filters.managerId, 'managerId');
   }
 
-  const { items, nextCursor, hasMore } = await userRepository.listUsers(filters, { limit, cursor });
-
-  let mappedItems = items.map(toUserDto);
   const includeRoles = String(query.includeRoles || query.include_roles || '').toLowerCase() === 'true';
+  const pageRequested = query.page !== undefined && query.page !== null && query.page !== '';
 
-  if (includeRoles && mappedItems.length) {
-    const rolesByAccountId = await rbacAccessService.getSessionRolesForAccounts(
-      mappedItems.map((row) => row.account_id)
-    );
-    mappedItems = mappedItems.map((row) => ({
-      ...row,
-      roles: rolesByAccountId.get(String(row.account_id)) || [],
-    }));
+  if (pageRequested && !query.cursor) {
+    const page = parsePage(query.page);
+    const { items, total } = await userRepository.listUsersPage(filters, {
+      limit,
+      skip: (page - 1) * limit,
+      sort: resolveListSort(query),
+    });
+
+    return {
+      items: await enrichUserRows(items, includeRoles),
+      pagination: buildPaginationMeta({ page, limit, total }),
+    };
   }
 
+  const { items, nextCursor, hasMore } = await userRepository.listUsers(filters, { limit, cursor });
+
   return {
-    items: mappedItems,
+    items: await enrichUserRows(items, includeRoles),
     pagination: {
       limit,
       has_more: hasMore,

@@ -49,7 +49,8 @@ function registerRoomHandlers(socket) {
     try {
       const room = await socketRoomAccessService.assertProjectRoomAccess(
         payload?.projectId,
-        socket.v2Auth.userId
+        socket.v2Auth.userId,
+        { account: socket.v2Auth.account },
       );
       await socket.join(room);
       ackResult(ack, { ok: true, room });

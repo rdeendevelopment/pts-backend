@@ -56,6 +56,18 @@ const aggregateQueryRules = [
   query('limit').optional().isInt({ min: 1, max: MAX_AGGREGATE_LIMIT }).toInt(),
 ];
 
+const projectBoardQueryRules = [
+  ...projectIdRules,
+  query('workflowStatusId').optional().isString().notEmpty(),
+  query('statusId').optional().isString().notEmpty(),
+  query('status').optional().isIn(TASK_STATUSES),
+  query('priority').optional().isIn(TASK_PRIORITIES),
+  query('assigneeUserId').optional().isString().notEmpty(),
+  query('search').optional().isString(),
+  query('page').optional().isInt({ min: 1 }).toInt(),
+  query('limit').optional().isInt({ min: 1, max: MAX_AGGREGATE_LIMIT }).toInt(),
+];
+
 const notificationQueryRules = [
   query('userId').optional().isString().notEmpty(),
   query('unread').optional().isIn(['true', 'false', '1', '0']),
@@ -85,6 +97,8 @@ const teamDashboardQueryRules = [
   query('dueDateTo').optional().isISO8601().toDate(),
   query('dueDateStart').optional().isISO8601().toDate(),
   query('dueDateEnd').optional().isISO8601().toDate(),
+  query('page').optional().isInt({ min: 1 }).toInt(),
+  query('limit').optional().isInt({ min: 1, max: MAX_AGGREGATE_LIMIT }).toInt(),
 ];
 
 const teamTasksQueryRules = [
@@ -193,6 +207,7 @@ module.exports = {
   moveTaskRules,
   createCommentRules,
   aggregateQueryRules,
+  projectBoardQueryRules,
   notificationQueryRules,
   reportsQueryRules,
   teamDashboardQueryRules,

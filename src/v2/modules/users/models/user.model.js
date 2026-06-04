@@ -72,7 +72,7 @@ UserSchema.index(
   { username: 1, isDeleted: 1 },
   {
     unique: true,
-    partialFilterExpression: { isDeleted: false, username: { $type: 'string', $ne: null } },
+    partialFilterExpression: { isDeleted: false, username: { $type: 'string' } },
   }
 );
 UserSchema.index({ createdAt: -1, _id: -1 });

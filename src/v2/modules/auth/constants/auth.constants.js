@@ -2,7 +2,7 @@ const constants = require('../../../../../config/constants');
 const env = require('../../../config/env');
 
 const ACCOUNT_STATUSES = ['active', 'inactive', 'suspended', 'pending'];
-const ACCOUNT_TYPES = ['super_admin', 'admin', 'manager', 'employee'];
+const ACCOUNT_TYPES = ['super_admin', 'admin', 'manager', 'employee', 'client'];
 
 const jwtSecret = process.env.PTS_V2_JWT_SECRET
   || constants.APP_SECRET

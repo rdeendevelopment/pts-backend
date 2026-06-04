@@ -23,6 +23,12 @@ const DEFAULT_ROLES = [
     description: 'Standard user access to assigned work modules.',
     priority: 40,
   },
+  {
+    key: 'client',
+    name: 'Client',
+    description: 'Client portal access to shared task boards only.',
+    priority: 50,
+  },
 ];
 
 const MANAGER_PERMISSION_KEYS = [
@@ -54,6 +60,12 @@ const EMPLOYEE_PERMISSION_KEYS = [
   'converse.view',
 ];
 
+const CLIENT_PERMISSION_KEYS = [
+  'auth.me',
+  'modules.view',
+  'tasks.view',
+];
+
 function resolvePermissionKeysForRole(roleKey, allPermissionKeys, permissionsByKey) {
   if (roleKey === 'super_admin') {
     return allPermissionKeys;
@@ -71,6 +83,10 @@ function resolvePermissionKeysForRole(roleKey, allPermissionKeys, permissionsByK
     return EMPLOYEE_PERMISSION_KEYS.filter((key) => allPermissionKeys.includes(key));
   }
 
+  if (roleKey === 'client') {
+    return CLIENT_PERMISSION_KEYS.filter((key) => allPermissionKeys.includes(key));
+  }
+
   return [];
 }
 
@@ -78,5 +94,6 @@ module.exports = {
   DEFAULT_ROLES,
   MANAGER_PERMISSION_KEYS,
   EMPLOYEE_PERMISSION_KEYS,
+  CLIENT_PERMISSION_KEYS,
   resolvePermissionKeysForRole,
 };

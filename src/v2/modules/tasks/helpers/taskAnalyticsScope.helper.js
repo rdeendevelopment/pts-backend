@@ -1,6 +1,11 @@
 const { getTaskModel } = require('../models/task.model');
 const projectAssignmentRepository = require('../../projects/repositories/projectAssignment.repository');
 const taskCollaboratorRepository = require('../repositories/taskCollaborator.repository');
+const boardShareRepository = require('../../board-shares/repositories/boardShare.repository');
+const {
+  isBoardShareClientUser,
+  resolveClientIdForAccount,
+} = require('../../board-shares/helpers/boardShareAccess.helper');
 const {
   canManageTasks,
   resolveUserIdFromAuth,
@@ -15,7 +20,30 @@ async function listActiveNonArchivedTaskIds({ limit = 400 } = {}) {
   return rows.map((row) => row._id);
 }
 
+async function listClientSharedTaskIds(req, { limit = 400 } = {}) {
+  const clientId = resolveClientIdForAccount(req);
+  if (!clientId) return [];
+
+  const share = await boardShareRepository.findActiveByClientId(clientId);
+  if (!share?.projectIds?.length) return [];
+
+  const Task = getTaskModel();
+  const rows = await Task.find({
+    isDeleted: false,
+    projectId: { $in: share.projectIds },
+  })
+    .select('_id')
+    .limit(limit)
+    .lean();
+
+  return rows.map((row) => row._id);
+}
+
 async function listScopedTaskIds(req, { limit = 400 } = {}) {
+  if (isBoardShareClientUser(req)) {
+    return listClientSharedTaskIds(req, { limit });
+  }
+
   if (canManageTasks(req)) {
     return listActiveNonArchivedTaskIds({ limit });
   }
@@ -138,6 +166,7 @@ async function buildReportsMatch(req, projectId = null) {
 
 module.exports = {
   listScopedTaskIds,
+  listClientSharedTaskIds,
   buildCalendarMatch,
   buildReportsMatch,
   calendarDateRange,

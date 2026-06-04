@@ -75,7 +75,14 @@ async function getActivitySummary(req) {
   return enrichActivities(activities);
 }
 
+async function getActivityForTask(req, taskId) {
+  const id = assertObjectId(taskId, 'taskId');
+  const activities = await taskActivityRepository.listByTaskIds([id], { limit: 100 });
+  return enrichActivities(activities);
+}
+
 module.exports = {
   getActivityFeed,
   getActivitySummary,
+  getActivityForTask,
 };

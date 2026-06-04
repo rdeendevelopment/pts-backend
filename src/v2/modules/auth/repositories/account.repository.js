@@ -56,9 +56,17 @@ async function findById(accountId, { includePassword = false, activeOnly = false
   return query.exec();
 }
 
+function sanitizeAccountCreatePayload(payload = {}) {
+  const doc = { ...payload };
+  if (doc.email == null || doc.email === '') delete doc.email;
+  if (doc.username == null || doc.username === '') delete doc.username;
+  if (doc.clientId == null) delete doc.clientId;
+  return doc;
+}
+
 async function createAccount(payload) {
   const Account = getAccountModel();
-  return Account.create(payload);
+  return Account.create(sanitizeAccountCreatePayload(payload));
 }
 
 async function updateLastLogin(accountId) {

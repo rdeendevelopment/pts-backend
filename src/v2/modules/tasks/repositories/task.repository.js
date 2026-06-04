@@ -8,8 +8,7 @@ async function findById(taskId, { projectId = null, includeDeleted = false } = {
   return Task.findOne(query).exec();
 }
 
-async function listByProject(projectId, filters = {}) {
-  const Task = getTaskModel();
+function buildProjectTaskQuery(projectId, filters = {}) {
   const query = { projectId, isDeleted: false };
   if (filters.status) query.status = filters.status;
   if (filters.statusNe) query.status = { $ne: filters.statusNe };
@@ -17,7 +16,34 @@ async function listByProject(projectId, filters = {}) {
   if (filters.assigneeUserId) query['assignees.userId'] = filters.assigneeUserId;
   if (filters.priority) query.priority = filters.priority;
 
+  if (filters.search) {
+    const term = String(filters.search).trim();
+    if (term) {
+      const regex = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query.$or = [{ title: regex }, { description: regex }];
+    }
+  }
+
+  return query;
+}
+
+async function listByProject(projectId, filters = {}) {
+  const Task = getTaskModel();
+  const query = buildProjectTaskQuery(projectId, filters);
+
   return Task.find(query).sort({ workflowOrder: 1, createdAt: 1 }).exec();
+}
+
+async function listByProjectPage(projectId, filters = {}, { skip = 0, limit = 100 } = {}) {
+  const Task = getTaskModel();
+  const query = buildProjectTaskQuery(projectId, filters);
+
+  const [items, total] = await Promise.all([
+    Task.find(query).sort({ workflowOrder: 1, createdAt: 1 }).skip(skip).limit(limit).exec(),
+    Task.countDocuments(query),
+  ]);
+
+  return { items, total };
 }
 
 async function createTask(payload) {
@@ -176,6 +202,7 @@ async function hardDeleteById(taskId) {
 module.exports = {
   findById,
   listByProject,
+  listByProjectPage,
   createTask,
   updateTask,
   findMaxOrder,

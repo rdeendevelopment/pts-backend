@@ -13,7 +13,12 @@ const listRules = [
   query('industry').optional().isString().withMessage('industry must be a string'),
   query('include_deleted').optional().isIn(['true', 'false']).withMessage('include_deleted must be true or false'),
   query('cursor').optional().isString().withMessage('cursor must be a string'),
+  query('page').optional().isInt({ min: 1 }).withMessage('page must be a positive integer'),
   query('limit').optional().isInt({ min: 1, max: MAX_LIST_LIMIT }).withMessage(`limit must be between 1 and ${MAX_LIST_LIMIT}`),
+  query('sort_by').optional().isString().withMessage('sort_by must be a string'),
+  query('sortBy').optional().isString().withMessage('sortBy must be a string'),
+  query('sort_order').optional().isIn(['asc', 'desc']).withMessage('sort_order must be asc or desc'),
+  query('sortOrder').optional().isIn(['asc', 'desc']).withMessage('sortOrder must be asc or desc'),
 ];
 
 const idParamRules = [

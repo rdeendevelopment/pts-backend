@@ -207,10 +207,15 @@ async function getDashboard(req, query = {}) {
     blocked: summarizeCard(blocked, totalTasks),
   };
 
-  const workload = await getWorkload(req, query, { scope, match });
+  const workloadResult = await getWorkload(req, query, { scope, match });
   const charts = await getCharts(req, query, { scope, match });
 
-  return { summary, workload, charts };
+  return {
+    summary,
+    workload: workloadResult.items,
+    workloadPagination: workloadResult.pagination,
+    charts,
+  };
 }
 
 async function getWorkload(req, query = {}, { scope, match }) {
@@ -218,6 +223,7 @@ async function getWorkload(req, query = {}, { scope, match }) {
   const now = new Date();
   const todayStart = startOfTodayUtc();
   const todayEnd = endOfTodayUtc();
+  const pagination = parsePagination(query, { defaultLimit: 20 });
 
   const userSearch = normalizeSearch(query.searchUser || query.userSearch || '');
   const userRegex = userSearch ? buildRegexSearch(userSearch) : null;
@@ -229,6 +235,17 @@ async function getWorkload(req, query = {}, { scope, match }) {
 
   if (scope.teamUserIds?.length) {
     pipeline.push({ $match: { 'assignees.userId': { $in: scope.teamUserIds.map((id) => assertObjectId(id, 'teamUserId')) } } });
+  }
+
+  if (userRegex) {
+    pipeline.push({
+      $match: {
+        $or: [
+          { 'assignees.name': userRegex },
+          { 'assignees.email': userRegex },
+        ],
+      },
+    });
   }
 
   pipeline.push({
@@ -292,7 +309,9 @@ async function getWorkload(req, query = {}, { scope, match }) {
   pipeline.push({ $sort: { assigned: -1, overdue: -1, urgent: -1 } });
 
   const rows = await Task.aggregate(pipeline);
-  const userIds = rows.map((r) => String(r._id));
+  const total = rows.length;
+  const pagedRows = rows.slice(pagination.skip, pagination.skip + pagination.limit);
+  const userIds = pagedRows.map((r) => String(r._id));
 
   const userMap = await userSummaryHelper.resolveUsersByIds(userIds);
   const User = getUserModel();
@@ -325,7 +344,7 @@ async function getWorkload(req, query = {}, { scope, match }) {
 
   const maxAssigned = rows.reduce((m, r) => Math.max(m, Number(r.assigned || 0)), 0) || 1;
 
-  const enriched = rows
+  const enriched = pagedRows
     .map((row) => {
       const id = String(row._id);
       const summary = userMap.get(id) || { userId: id, displayName: row.name || id.slice(-6) };
@@ -359,15 +378,12 @@ async function getWorkload(req, query = {}, { scope, match }) {
         hoursLogged: Math.round((Number(minutesByUser.get(id) || 0) / 60) * 100) / 100,
         health,
       };
-    })
-    .filter((row) => {
-      if (!userRegex) return true;
-      const name = String(row.user.displayName || '').toLowerCase();
-      const email = String(row.user.email || '').toLowerCase();
-      return userRegex.test(name) || userRegex.test(email);
     });
 
-  return enriched;
+  return {
+    items: enriched,
+    pagination: buildPaginationMeta({ ...pagination, total }),
+  };
 }
 
 async function getCharts(_req, _query, { match }) {
@@ -583,4 +599,3 @@ module.exports = {
   listTeamTasks,
   getUserDashboard,
 };
-

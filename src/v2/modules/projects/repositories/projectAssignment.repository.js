@@ -77,6 +77,69 @@ async function listActiveProjectIdsByUserId(userId) {
   return [...new Set(rows.map((row) => row.projectId))];
 }
 
+async function listActiveMemberSummariesByProjectIds(projectIds = [], { sampleSize = 4 } = {}) {
+  if (!projectIds.length) return new Map();
+
+  const ProjectAssignment = getProjectAssignmentModel();
+  const rows = await ProjectAssignment.aggregate([
+    {
+      $match: {
+        projectId: { $in: projectIds },
+        isDeleted: false,
+        status: 'active',
+      },
+    },
+    { $sort: { assignedAt: 1, createdAt: 1, _id: 1 } },
+    {
+      $lookup: {
+        from: 'pts_users',
+        localField: 'userId',
+        foreignField: '_id',
+        as: 'user',
+      },
+    },
+    { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+    {
+      $group: {
+        _id: '$projectId',
+        totalMembers: { $sum: 1 },
+        members: {
+          $push: {
+            id: '$user._id',
+            userId: '$userId',
+            firstName: '$user.firstName',
+            lastName: '$user.lastName',
+            displayName: '$user.displayName',
+            email: '$user.email',
+            avatarUrl: '$user.avatarUrl',
+          },
+        },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        projectId: '$_id',
+        totalMembers: 1,
+        members: { $slice: ['$members', sampleSize] },
+      },
+    },
+  ]);
+
+  return new Map(rows.map((row) => [String(row.projectId), {
+    totalMembers: Number(row.totalMembers || 0),
+    members: (row.members || []).map((member) => ({
+      id: member.id ? String(member.id) : String(member.userId || ''),
+      userId: member.userId ? String(member.userId) : null,
+      firstName: member.firstName || null,
+      lastName: member.lastName || null,
+      displayName: member.displayName || null,
+      email: member.email || null,
+      avatarUrl: member.avatarUrl || null,
+    })),
+  }]));
+}
+
 module.exports = {
   listByProjectId,
   findById,
@@ -86,4 +149,5 @@ module.exports = {
   softRemoveAssignment,
   countActiveMembers,
   listActiveProjectIdsByUserId,
+  listActiveMemberSummariesByProjectIds,
 };

@@ -6,7 +6,7 @@ const ACCOUNT_ROLE_STATUSES = ['active', 'inactive'];
 const ROLE_KEY_PATTERN = /^[a-z][a-z0-9_]*$/;
 const PERMISSION_KEY_PATTERN = /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/;
 
-const DEFAULT_ROLE_KEYS = ['super_admin', 'admin', 'manager', 'employee'];
+const DEFAULT_ROLE_KEYS = ['super_admin', 'admin', 'manager', 'employee', 'client'];
 
 module.exports = {
   ROLE_STATUSES,

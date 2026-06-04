@@ -32,8 +32,30 @@ function parseLimit(rawLimit, { defaultLimit = 20, maxLimit = 100 } = {}) {
   return Math.min(Math.floor(parsed), maxLimit);
 }
 
+function parsePage(rawPage) {
+  const parsed = Number(rawPage);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+  return Math.floor(parsed);
+}
+
+function buildPaginationMeta({ page, limit, total }) {
+  const totalPages = total > 0 ? Math.ceil(total / limit) : 0;
+  return {
+    page,
+    limit,
+    total,
+    total_pages: totalPages,
+    totalPages,
+    has_more: totalPages > 0 && page < totalPages,
+    hasMore: totalPages > 0 && page < totalPages,
+    next_cursor: null,
+  };
+}
+
 module.exports = {
   encodeCursor,
   decodeCursor,
   parseLimit,
+  parsePage,
+  buildPaginationMeta,
 };

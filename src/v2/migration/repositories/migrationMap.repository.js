@@ -48,10 +48,24 @@ async function countByRun(connection, runId, { entityType = null } = {}) {
   return MigrationMap.countDocuments(query).exec();
 }
 
+async function listByRunId(connection, runId, { entityType = null } = {}) {
+  const MigrationMap = getMigrationMapModel(connection);
+  const query = { runId };
+  if (entityType) query.entityType = entityType;
+  return MigrationMap.find(query).lean().exec();
+}
+
+async function deleteByRunId(connection, runId) {
+  const MigrationMap = getMigrationMapModel(connection);
+  return MigrationMap.deleteMany({ runId }).exec();
+}
+
 module.exports = {
   findMappedByOldRef,
   buildMapUpsertQuery,
   upsertMap,
   createMap,
   countByRun,
+  listByRunId,
+  deleteByRunId,
 };

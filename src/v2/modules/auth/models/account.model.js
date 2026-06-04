@@ -44,6 +44,13 @@ const AccountSchema = new Schema(
       default: 'employee',
       index: true,
     },
+    /** Required when accountType is `client` — links portal login to a client org. */
+    clientId: {
+      type: Schema.Types.ObjectId,
+      ref: 'PtsClient',
+      default: null,
+      index: true,
+    },
     lastLoginAt: { type: Date, default: null },
     security: { type: SecuritySchema, default: () => ({}) },
     schemaVersion: { type: Number, default: 1 },
@@ -61,7 +68,7 @@ AccountSchema.index(
   {
     unique: true,
     name: 'pts_accounts_email_unique_active',
-    partialFilterExpression: { isDeleted: false, email: { $type: 'string', $ne: null } },
+    partialFilterExpression: { isDeleted: false, email: { $type: 'string' } },
   }
 );
 
@@ -70,12 +77,37 @@ AccountSchema.index(
   {
     unique: true,
     name: 'pts_accounts_username_unique_active',
-    partialFilterExpression: { isDeleted: false, username: { $type: 'string', $ne: null } },
+    partialFilterExpression: { isDeleted: false, username: { $type: 'string' } },
   }
 );
 
+function partialFilterMatches(index, expected) {
+  if (!index?.partialFilterExpression) return false;
+  return JSON.stringify(index.partialFilterExpression) === JSON.stringify(expected);
+}
+
 async function ensureAccountIndexes() {
   const Account = getV2Model('PtsAccount', AccountSchema);
+  const collection = Account.collection;
+  const indexes = await collection.indexes();
+
+  const emailExpected = { isDeleted: false, email: { $type: 'string' } };
+  const emailIndex = indexes.find((row) => row.name === 'pts_accounts_email_unique_active');
+  if (emailIndex && !partialFilterMatches(emailIndex, emailExpected)) {
+    await collection.dropIndex('pts_accounts_email_unique_active');
+  }
+
+  const usernameExpected = { isDeleted: false, username: { $type: 'string' } };
+  const usernameIndex = indexes.find((row) => row.name === 'pts_accounts_username_unique_active');
+  if (usernameIndex && !partialFilterMatches(usernameIndex, usernameExpected)) {
+    await collection.dropIndex('pts_accounts_username_unique_active');
+  }
+
+  await Account.updateMany(
+    { email: null },
+    { $unset: { email: '' } },
+  );
+
   await Account.createIndexes();
   return Account;
 }

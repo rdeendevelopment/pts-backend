@@ -76,8 +76,50 @@ async function createInitialStats(projectId) {
   return projectStatsRepository.createStats({ projectId });
 }
 
+/**
+ * List-safe stats resolution: one batch read from pts_project_stats, optional
+ * recalculation only for projects with no cached row (e.g. newly created).
+ */
+async function resolveStatsForList(projectIds = []) {
+  const normalizedIds = projectIds.filter(Boolean);
+  if (!normalizedIds.length) {
+    return {
+      statsByProjectId: new Map(),
+      cachedFound: 0,
+      missingCount: 0,
+      fallbackRecalculated: 0,
+    };
+  }
+
+  const cachedRows = await projectStatsRepository.findByProjectIds(normalizedIds);
+  const statsByProjectId = new Map(
+    cachedRows.map((row) => [String(row.projectId), row])
+  );
+
+  const missingIds = normalizedIds.filter((id) => !statsByProjectId.has(String(id)));
+  let fallbackRecalculated = 0;
+
+  if (missingIds.length) {
+    const recalculatedRows = await Promise.all(
+      missingIds.map((projectId) => recalculateStats(projectId))
+    );
+    recalculatedRows.forEach((row) => {
+      if (row) statsByProjectId.set(String(row.projectId), row);
+    });
+    fallbackRecalculated = missingIds.length;
+  }
+
+  return {
+    statsByProjectId,
+    cachedFound: cachedRows.length,
+    missingCount: missingIds.length,
+    fallbackRecalculated,
+  };
+}
+
 module.exports = {
   recalculateStats,
   getStats,
   createInitialStats,
+  resolveStatsForList,
 };

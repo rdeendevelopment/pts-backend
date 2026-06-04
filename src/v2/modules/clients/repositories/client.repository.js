@@ -53,6 +53,22 @@ async function listClients(filters = {}, { limit = 20, cursor = null } = {}) {
   return { items, nextCursor, hasMore };
 }
 
+async function listClientsPage(filters = {}, { limit = 20, skip = 0, sort = { updatedAt: -1, _id: -1 } } = {}) {
+  const Client = getClientModel();
+  const query = buildListQuery(filters);
+
+  const [items, total] = await Promise.all([
+    Client.find(query)
+      .sort(sort)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Client.countDocuments(query),
+  ]);
+
+  return { items, total };
+}
+
 async function findById(clientId, { includeDeleted = false } = {}) {
   const Client = getClientModel();
   const query = { _id: clientId };
@@ -118,6 +134,7 @@ async function softDeleteClient(clientId, updatedBy) {
 
 module.exports = {
   listClients,
+  listClientsPage,
   findById,
   findByIds,
   findByNormalizedName,

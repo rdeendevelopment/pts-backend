@@ -8,6 +8,10 @@ const {
   resolveUserIdFromAuth,
 } = require('./taskAccessScope.helper');
 const {
+  isBoardShareClientUser,
+  mapShareRoleToTaskCapabilities,
+} = require('./taskBoardShareAccess.helper');
+const {
   mapAssignmentRoleToEditorRole,
   canEditProjectWithRole,
   normalizeAccessType,
@@ -31,6 +35,21 @@ async function resolveTaskCapabilities(req, task) {
       canMove: false,
       canArchive: false,
       collaboratorOnly: false,
+    };
+  }
+
+  if (req && isBoardShareClientUser(req)) {
+    const shareRole = req.boardShare?.role || 'viewer';
+    const caps = mapShareRoleToTaskCapabilities(shareRole);
+    return {
+      canRead: true,
+      canComment: caps.canComment,
+      canEdit: caps.canEdit,
+      canMove: caps.canMove,
+      canArchive: false,
+      collaboratorOnly: false,
+      shareRole,
+      isClientPortal: true,
     };
   }
 

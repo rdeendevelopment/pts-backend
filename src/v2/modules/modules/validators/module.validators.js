@@ -3,6 +3,8 @@ const { MODULE_CATEGORIES, MODULE_STATUSES } = require('../constants/module.cons
 
 const listRules = [
   query('include_deleted').optional().isIn(['true', 'false']).withMessage('include_deleted must be true or false'),
+  query('managed_only').optional().isIn(['true', 'false', '1', '0']).withMessage('managed_only must be true or false'),
+  query('managedOnly').optional().isIn(['true', 'false', '1', '0']).withMessage('managedOnly must be true or false'),
 ];
 
 const idParamRules = [

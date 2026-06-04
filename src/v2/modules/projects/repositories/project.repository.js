@@ -5,7 +5,11 @@ function buildListQuery(filters = {}) {
 
   if (!filters.includeDeleted) query.isDeleted = false;
   if (filters.clientId) query.clientId = filters.clientId;
-  if (filters.status) query.status = filters.status;
+  if (filters.statusIn?.length) {
+    query.status = { $in: filters.statusIn };
+  } else if (filters.status) {
+    query.status = filters.status;
+  }
   if (filters.type) query.type = filters.type;
   if (filters.billingType) query.billingType = filters.billingType;
   if (filters.priority) query.priority = filters.priority;
@@ -27,7 +31,26 @@ function buildListQuery(filters = {}) {
   return query;
 }
 
-async function listProjects(filters = {}, { limit = 20, cursor = null } = {}) {
+function resolveListSort(sortBy, sortOrder) {
+  const key = String(sortBy || 'recent').trim().toLowerCase();
+  const asc = String(sortOrder || 'desc').toLowerCase() === 'asc' ? 1 : -1;
+
+  if (key === 'name' || key === 'title' || key === 'az') {
+    return { name: asc, _id: 1 };
+  }
+  if (key === 'status') {
+    return { status: asc, _id: 1 };
+  }
+  if (key === 'deadline' || key === 'due_date') {
+    return { dueDate: asc, _id: 1 };
+  }
+  if (key === 'client') {
+    return { clientId: asc, _id: 1 };
+  }
+  return { updatedAt: -1, _id: -1 };
+}
+
+async function listProjects(filters = {}, { limit = 20, cursor = null, sort = null } = {}) {
   const Project = getProjectModel();
   const baseQuery = buildListQuery(filters);
   const conditions = [baseQuery];
@@ -43,8 +66,9 @@ async function listProjects(filters = {}, { limit = 20, cursor = null } = {}) {
 
   const query = conditions.length === 1 ? conditions[0] : { $and: conditions };
 
+  const sortSpec = sort || { updatedAt: -1, _id: -1 };
   const rows = await Project.find(query)
-    .sort({ updatedAt: -1, _id: -1 })
+    .sort(sortSpec)
     .limit(limit + 1)
     .lean();
 
@@ -53,6 +77,51 @@ async function listProjects(filters = {}, { limit = 20, cursor = null } = {}) {
   const nextCursor = hasMore ? items[items.length - 1] : null;
 
   return { items, nextCursor, hasMore };
+}
+
+async function listProjectsPage(filters = {}, { skip = 0, limit = 20, sort = null } = {}) {
+  const Project = getProjectModel();
+  const query = buildListQuery(filters);
+  const sortSpec = sort || { updatedAt: -1, _id: -1 };
+
+  const [items, total] = await Promise.all([
+    Project.find(query)
+      .sort(sortSpec)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Project.countDocuments(query),
+  ]);
+
+  return { items, total };
+}
+
+async function getPortfolioSummary(filters = {}) {
+  const Project = getProjectModel();
+  const base = buildListQuery({
+    ...filters,
+    status: undefined,
+    statusIn: undefined,
+  });
+  const now = new Date();
+
+  const [
+    total,
+    active,
+    completed,
+    atRisk,
+  ] = await Promise.all([
+    Project.countDocuments(base),
+    Project.countDocuments({ ...base, status: 'active' }),
+    Project.countDocuments({ ...base, status: 'completed' }),
+    Project.countDocuments({
+      ...base,
+      status: { $in: ['draft', 'active', 'on_hold'] },
+      dueDate: { $lt: now, $ne: null },
+    }),
+  ]);
+
+  return { total, active, completed, atRisk, consumedMinutes: 0 };
 }
 
 async function findById(projectId, { includeDeleted = false } = {}) {
@@ -131,6 +200,9 @@ async function listRetainerProjectsForAutoRenewal() {
 
 module.exports = {
   listProjects,
+  listProjectsPage,
+  getPortfolioSummary,
+  resolveListSort,
   findById,
   findByClientAndNormalizedName,
   findByCode,

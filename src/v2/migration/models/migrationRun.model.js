@@ -21,8 +21,18 @@ const MigrationStepSchema = new Schema(
   { _id: false }
 );
 
+const MIGRATION_SOURCES = ['mongo_legacy', 'sql_file'];
+
 const MigrationRunSchema = new Schema(
   {
+    source: {
+      type: String,
+      enum: MIGRATION_SOURCES,
+      default: 'mongo_legacy',
+      index: true,
+    },
+    fileName: { type: String, default: null },
+    summary: { type: Schema.Types.Mixed, default: null },
     mode: { type: String, enum: MIGRATION_MODES, required: true },
     status: {
       type: String,
@@ -64,5 +74,6 @@ module.exports = {
   MigrationRunSchema,
   MIGRATION_MODES,
   MIGRATION_RUN_STATUSES,
+  MIGRATION_SOURCES,
   getMigrationRunModel,
 };

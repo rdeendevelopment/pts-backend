@@ -87,6 +87,10 @@ async function runBootstrapMaintenance() {
   await ensureAnnouncementsModuleIndexes();
   info('PTS v2 announcement indexes ensured');
 
+  const { ensureBoardShareIndexes } = require('./modules/board-shares');
+  await ensureBoardShareIndexes();
+  info('PTS v2 board share indexes ensured');
+
   const { ensureSchedulerModuleIndexes } = require('./modules/scheduler');
   await ensureSchedulerModuleIndexes();
   info('PTS v2 scheduler indexes ensured');

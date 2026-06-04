@@ -11,6 +11,7 @@
     "lint:v2": "eslint \"src/v2/**/*.js\"",
     "test:v2": "node --test src/v2/**/*.test.js",
     "v2:seed": "node src/v2/migration/seed/seedAll.js",
+    "v2:seed:kmj-admin": "node scripts/seed-super-admin-kmj.js",
     "v2:migrate:dry-run": "node src/v2/migration/scripts/migrateAll.js --mode=dry-run",
     "v2:migrate:live": "node src/v2/migration/scripts/migrateAll.js --mode=live",
     "v2:migrate:users": "node src/v2/migration/scripts/migrateUsers.js --mode=live",
@@ -22,6 +23,10 @@
     "v2:migrate:attachments": "node src/v2/migration/scripts/migrateAttachments.js --mode=live",
     "v2:migrate:recalculate": "node src/v2/migration/scripts/recalculateProjectBudgets.js --mode=live",
     "v2:migrate:validate": "node src/v2/migration/scripts/validate.js",
+    "migrate:phase1": "node migrate-phase1.js",
+    "migrate:phase1:rollback": "node migrate-phase1.js --reset=true",
+    "migrate:phase2": "node migrate-phase2.js",
+    "migrate:phase2:rollback": "node migrate-phase2.js --reset=true",
     "v2:cleanup:legacy-collections": "node src/v2/migration/scripts/cleanupLegacyCollections.js --mode=dry-run",
     "v2:cleanup:legacy-collections:live": "node src/v2/migration/scripts/cleanupLegacyCollections.js --mode=live"
   },

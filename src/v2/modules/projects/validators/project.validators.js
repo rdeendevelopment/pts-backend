@@ -31,7 +31,14 @@ const listRules = [
   query('loggableOnly').optional().isIn(['true', 'false']).withMessage('loggableOnly must be true or false'),
   query('include_deleted').optional().isIn(['true', 'false']).withMessage('include_deleted must be true or false'),
   query('cursor').optional().isString().withMessage('cursor must be a string'),
+  query('page').optional().isInt({ min: 1 }).toInt().withMessage('page must be >= 1'),
   query('limit').optional().isInt({ min: 1, max: MAX_LIST_LIMIT }).withMessage(`limit must be between 1 and ${MAX_LIST_LIMIT}`),
+  query('sort_by').optional().isString().withMessage('sort_by must be a string'),
+  query('sortBy').optional().isString().withMessage('sortBy must be a string'),
+  query('sort_order').optional().isIn(['asc', 'desc']).withMessage('sort_order must be asc or desc'),
+  query('sortOrder').optional().isIn(['asc', 'desc']).withMessage('sortOrder must be asc or desc'),
+  query('include_summary').optional().isIn(['true', 'false', '1', '0']).withMessage('include_summary must be true or false'),
+  query('includeSummary').optional().isIn(['true', 'false', '1', '0']).withMessage('includeSummary must be true or false'),
 ];
 
 const idParamRules = [

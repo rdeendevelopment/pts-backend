@@ -46,6 +46,15 @@ const {
   collectTaskFileUrls,
   deleteTaskFilesBestEffort,
 } = require('../helpers/taskPermanentDelete.helper');
+const { parsePagination, buildPaginationMeta } = require('../helpers/taskAggregateQuery.helper');
+const {
+  isBoardShareClientUser,
+  mapShareRoleToBoardCapabilities,
+  mapShareRoleToTaskCapabilities,
+  assertClientBoardShare,
+  BOARD_SHARE_ACTIONS,
+} = require('../helpers/taskBoardShareAccess.helper');
+const { assertTaskReadable } = require('../helpers/taskCollaboratorAccess.helper');
 
 async function enrichTask(task, projectHint = null) {
   if (!task) return null;
@@ -82,15 +91,28 @@ async function enrichTask(task, projectHint = null) {
   }, { taskKeyPrefix });
 }
 
-async function getProjectBoard(projectId, filters = {}) {
+async function getProjectBoard(projectId, filters = {}, req = null) {
+  let capabilities = { canEditTasks: true, canComment: true, canCreateTask: true, canMoveTask: true };
+  if (req && isBoardShareClientUser(req)) {
+    const share = req.boardShare
+      || await assertClientBoardShare(req, projectId, BOARD_SHARE_ACTIONS.VIEW_BOARD);
+    capabilities = mapShareRoleToBoardCapabilities(share.role);
+  } else if (req) {
+    await taskAccessService.assertCanAccessProjectForTasks(req, projectId);
+  }
+
   const project = await taskAccessService.assertProjectExists(projectId);
   const { workflow, statuses } = await taskWorkflowService.getOrCreateProjectWorkflow(projectId);
+  const pagination = parsePagination(filters, { defaultLimit: 100 });
 
-  const tasks = await taskRepository.listByProject(projectId, {
-    statusNe: 'archived',
+  const { items: tasks, total } = await taskRepository.listByProjectPage(projectId, {
+    status: filters.status,
+    statusNe: filters.status ? null : 'archived',
+    workflowStatusId: filters.workflowStatusId || filters.statusId,
     assigneeUserId: filters.assigneeUserId,
     priority: filters.priority,
-  });
+    search: filters.search,
+  }, pagination);
 
   const board = {};
   for (const status of statuses) {
@@ -122,6 +144,8 @@ async function getProjectBoard(projectId, filters = {}) {
     workflow: toWorkflowDto(workflow),
     statuses: statuses.map(toWorkflowStatusDto),
     board: enrichedBoard,
+    pagination: buildPaginationMeta({ ...pagination, total }),
+    capabilities,
   };
 }
 
@@ -134,10 +158,19 @@ async function getProjectWorkflow(projectId) {
   };
 }
 
-async function listArchivedTasks(projectId) {
+async function listArchivedTasks(projectId, filters = {}) {
   await taskAccessService.assertProjectExists(projectId);
-  const tasks = await taskRepository.listByProject(projectId, { status: 'archived' });
-  return Promise.all(tasks.map((task) => enrichTask(task)));
+  const pagination = parsePagination(filters, { defaultLimit: 100 });
+  const { items, total } = await taskRepository.listByProjectPage(
+    projectId,
+    { status: 'archived', search: filters.search },
+    pagination
+  );
+  const tasks = await Promise.all(items.map((task) => enrichTask(task)));
+  return {
+    items: tasks,
+    pagination: buildPaginationMeta({ ...pagination, total }),
+  };
 }
 
 async function resolveCreatorUserId(accountId) {
@@ -223,7 +256,7 @@ async function createTask(projectId, payload, accountId, req) {
   return taskDto;
 }
 
-async function getTaskById(taskId) {
+async function getTaskById(taskId, req = null) {
   const task = await taskRepository.findById(taskId);
   if (!task) {
     throw new AppError('Task not found', {
@@ -231,7 +264,15 @@ async function getTaskById(taskId) {
       code: taskErrorCodes.TASK_NOT_FOUND,
     });
   }
-  return enrichTask(task);
+  if (req) {
+    await assertTaskReadable(req, task);
+  }
+  const taskDto = await enrichTask(task);
+  if (req && isBoardShareClientUser(req)) {
+    const shareRole = req.boardShare?.role || 'viewer';
+    taskDto.capabilities = mapShareRoleToTaskCapabilities(shareRole);
+  }
+  return taskDto;
 }
 
 async function updateTask(taskId, payload, accountId, req) {
@@ -258,7 +299,7 @@ async function updateTask(taskId, payload, accountId, req) {
     if (payload[key] !== undefined) updates[key] = payload[key];
   }
 
-  if (payload.assigneeIds !== undefined) {
+  if (payload.assigneeIds !== undefined && !(req && isBoardShareClientUser(req))) {
     const assigneeIds = await taskAccessService.assertAssigneesOnProject(
       task.projectId,
       payload.assigneeIds || [],
@@ -387,6 +428,12 @@ async function archiveTask(taskId, accountId, req) {
   const task = await taskRepository.findById(taskId);
   if (!task) {
     throw new AppError('Task not found', { status: 404, code: taskErrorCodes.TASK_NOT_FOUND });
+  }
+  if (req && isBoardShareClientUser(req)) {
+    throw new AppError('You do not have permission to archive this task', {
+      status: 403,
+      code: taskErrorCodes.TASK_ASSIGNEE_NOT_ON_PROJECT,
+    });
   }
   if (req) {
     await assertCanArchiveTask(req, task);
