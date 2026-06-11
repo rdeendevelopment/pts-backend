@@ -136,6 +136,9 @@ function registerRoomHandlers(socket) {
       // typing is best-effort
     }
   });
+
+  const { registerDiscussFlowSocketHandlers } = require('../../discuss-flow/helpers/discussFlowSocketHandlers.helper');
+  registerDiscussFlowSocketHandlers(socket);
 }
 
 function handleConnection(socket) {

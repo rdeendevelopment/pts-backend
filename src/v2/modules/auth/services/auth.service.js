@@ -8,6 +8,7 @@ const passwordService = require('./password.service');
 const tokenService = require('./token.service');
 const { getSessionAccessForAccount } = require('../../rbac/services/rbacAccess.service');
 const { getUserSummaryForAccount } = require('../../users/services/user.service');
+const { getClientSessionForAccount } = require('../../clients/services/clientContact.service');
 const { toAccountDto, toAuthSessionDto } = require('../dto/account.dto');
 
 function assertAccountCanAuthenticate(account) {
@@ -50,7 +51,11 @@ async function issueSession(account, req) {
   await accountRepository.updateLastLogin(account._id);
 
   const sessionAccess = await getSessionAccessForAccount(account._id);
-  const user = await getUserSummaryForAccount(account._id);
+  const isClientAccount = account.accountType === 'client';
+  const user = isClientAccount ? null : await getUserSummaryForAccount(account._id);
+  const { clientContact, client } = isClientAccount
+    ? await getClientSessionForAccount(account)
+    : { clientContact: null, client: null };
   const accessToken = tokenService.signAccessToken(account, sessionAccess.roles);
 
   return toAuthSessionDto({
@@ -62,6 +67,8 @@ async function issueSession(account, req) {
     permissions: sessionAccess.permissions,
     modules: sessionAccess.modules,
     user,
+    clientContact,
+    client,
   });
 }
 
@@ -230,7 +237,11 @@ async function refresh(rawRefreshToken, req) {
 
   await refreshTokenRepository.markReplaced(stored._id, newRefreshDoc._id);
 
-  const user = await getUserSummaryForAccount(account._id);
+  const isClientAccount = account.accountType === 'client';
+  const user = isClientAccount ? null : await getUserSummaryForAccount(account._id);
+  const { clientContact, client } = isClientAccount
+    ? await getClientSessionForAccount(account)
+    : { clientContact: null, client: null };
 
   return toAuthSessionDto({
     account,
@@ -241,6 +252,8 @@ async function refresh(rawRefreshToken, req) {
     permissions: sessionAccess.permissions,
     modules: sessionAccess.modules,
     user,
+    clientContact,
+    client,
   });
 }
 
@@ -264,11 +277,17 @@ async function getMe(accountId) {
   assertAccountCanAuthenticate(account);
 
   const sessionAccess = await getSessionAccessForAccount(accountId);
-  const user = await getUserSummaryForAccount(accountId);
+  const isClientAccount = account.accountType === 'client';
+  const user = isClientAccount ? null : await getUserSummaryForAccount(accountId);
+  const { clientContact, client } = isClientAccount
+    ? await getClientSessionForAccount(account)
+    : { clientContact: null, client: null };
 
   return {
     account: toAccountDto(account),
     user,
+    client_contact: clientContact,
+    client,
     roles: sessionAccess.roles,
     permissions: sessionAccess.permissions,
     modules: sessionAccess.modules,

@@ -7,6 +7,7 @@ const {
   getProjectRoom,
   getTaskRoom,
   getConversationRoom,
+  getDiscussFlowTopicRoom,
 } = require('../helpers/socketRooms.helper');
 const socketServerService = require('./socketServer.service');
 
@@ -75,6 +76,10 @@ function emitToConversation(conversationId, eventName, payload) {
   emitToRoom(getConversationRoom(conversationId), eventName, payload);
 }
 
+function emitToDiscussFlowTopic(topicId, eventName, payload) {
+  emitToRoom(getDiscussFlowTopicRoom(topicId), eventName, payload);
+}
+
 function broadcast(eventName, payload) {
   assertSocketReady();
   const nsp = socketServerService.getNamespace();
@@ -96,6 +101,7 @@ module.exports = {
   emitToProject,
   emitToTask,
   emitToConversation,
+  emitToDiscussFlowTopic,
   broadcast,
   shutdownSocket,
 };

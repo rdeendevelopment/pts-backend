@@ -56,6 +56,48 @@ const {
 } = require('../helpers/taskBoardShareAccess.helper');
 const { assertTaskReadable } = require('../helpers/taskCollaboratorAccess.helper');
 
+async function syncMyDayForAssignees(task, previousStatus, performerAccountId) {
+  if (!task?.assignees?.length) return;
+
+  try {
+    const { dailyFlowTaskSyncService } = require('../../daily-flow');
+    const { resolveAccountIdForUserId } = require('../../daily-flow/helpers/account.helper');
+
+    const assigneeIds = [...new Set(
+      (task.assignees || []).map((assignee) => assignee.userId).filter(Boolean).map(String)
+    )];
+
+    await Promise.all(assigneeIds.map(async (userId) => {
+      let assigneeAccountId = performerAccountId;
+      try {
+        assigneeAccountId = await resolveAccountIdForUserId(userId);
+      } catch (_err) {
+        assigneeAccountId = performerAccountId;
+      }
+
+      if (task.status === 'completed' && previousStatus !== 'completed') {
+        await dailyFlowTaskSyncService.syncTaskCompleted(task._id, userId, assigneeAccountId);
+      } else if (task.status === 'active' && previousStatus === 'completed') {
+        await dailyFlowTaskSyncService.syncTaskReopened(task._id, userId, assigneeAccountId);
+      }
+    }));
+  } catch (err) {
+    const { warn } = require('../../../kernel/logger');
+    warn('Task Board My Day sync skipped', {
+      taskId: String(task?._id),
+      message: err.message,
+    });
+  }
+}
+
+async function resolveReopenWorkflowStatus(workflowId) {
+  const statuses = await taskWorkflowStatusRepository.listByWorkflowId(workflowId);
+  return statuses.find((status) => status.key === 'in_progress' && !status.isTerminal)
+    || statuses.find((status) => status.category === 'active' && !status.isTerminal)
+    || statuses.find((status) => !status.isTerminal)
+    || null;
+}
+
 async function enrichTask(task, projectHint = null) {
   if (!task) return null;
   const doc = task.toObject ? task.toObject() : task;
@@ -393,6 +435,8 @@ async function moveTask(taskId, workflowStatusId, accountId, req) {
     emitTaskCompleted(task.projectId, taskDto);
   }
 
+  await syncMyDayForAssignees(updated, task.status, accountId);
+
   return taskDto;
 }
 
@@ -421,6 +465,57 @@ async function completeTask(taskId, accountId, req) {
 
   const taskDto = await enrichTask(updated);
   emitTaskCompleted(task.projectId, taskDto);
+  await syncMyDayForAssignees(updated, task.status, accountId);
+
+  return taskDto;
+}
+
+async function reopenTask(taskId, accountId, req) {
+  const task = await taskRepository.findById(taskId);
+  if (!task) {
+    throw new AppError('Task not found', { status: 404, code: taskErrorCodes.TASK_NOT_FOUND });
+  }
+  if (req) {
+    await assertCanEditTask(req, task);
+  }
+
+  if (task.status !== 'completed') {
+    return enrichTask(task);
+  }
+
+  const previousStatus = task.status;
+  const reopenStatus = await resolveReopenWorkflowStatus(task.workflowId);
+  const updates = {
+    status: 'active',
+    completedAt: null,
+    completedBy: null,
+    updatedBy: accountId,
+  };
+
+  if (reopenStatus) {
+    const maxOrder = await taskRepository.findMaxOrder(
+      task.projectId,
+      reopenStatus._id,
+      task._id
+    );
+    updates.workflowStatusId = reopenStatus._id;
+    updates.workflowOrder = (maxOrder?.workflowOrder || 0) + WORKFLOW_ORDER_STEP;
+  }
+
+  const updated = await taskRepository.updateTask(taskId, updates);
+
+  await taskActivityService.logTaskActivity({
+    taskId,
+    projectId: task.projectId,
+    eventType: 'TASK_UPDATED',
+    performedBy: accountId,
+    metadata: { action: 'reopened', fromStatus: previousStatus },
+  });
+
+  const taskDto = await enrichTask(updated);
+  emitTaskUpdated(task.projectId, taskDto);
+  await syncMyDayForAssignees(updated, previousStatus, accountId);
+
   return taskDto;
 }
 
@@ -537,6 +632,7 @@ module.exports = {
   updateTask,
   moveTask,
   completeTask,
+  reopenTask,
   archiveTask,
   restoreTask,
   permanentDeleteTask,

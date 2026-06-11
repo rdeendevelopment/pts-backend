@@ -8,6 +8,8 @@ const ROOM_PREFIX = {
   PROJECT: 'project',
   TASK: 'task',
   CONVERSATION: 'conversation',
+  /** Full room name is discussflow:topic:{topicId} */
+  DISCUSSFLOW_TOPIC: 'discussflow:topic',
 };
 
 /** Client → server events (room membership is validated server-side). */

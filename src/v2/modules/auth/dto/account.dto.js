@@ -28,6 +28,8 @@ function toAuthSessionDto({
   permissions = [],
   modules = [],
   user = null,
+  clientContact = null,
+  client = null,
 }) {
   return {
     account: toAccountDto(account),
@@ -36,6 +38,8 @@ function toAuthSessionDto({
     expires_in: expiresIn,
     token_type: 'Bearer',
     user,
+    client_contact: clientContact,
+    client,
     roles,
     permissions,
     modules,

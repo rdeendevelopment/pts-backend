@@ -59,8 +59,8 @@ async function runBootstrapMaintenance() {
   await ensureUserIndexes();
   info('PTS v2 user indexes ensured');
 
-  const { ensureClientIndexes } = require('./modules/clients');
-  await ensureClientIndexes();
+  const { ensureClientModuleIndexes } = require('./modules/clients');
+  await ensureClientModuleIndexes();
   info('PTS v2 client indexes ensured');
 
   const { ensureProjectModuleIndexes } = require('./modules/projects');
@@ -94,6 +94,19 @@ async function runBootstrapMaintenance() {
   const { ensureSchedulerModuleIndexes } = require('./modules/scheduler');
   await ensureSchedulerModuleIndexes();
   info('PTS v2 scheduler indexes ensured');
+
+  const { ensureDailyFlowModuleIndexes } = require('./modules/daily-flow');
+  await ensureDailyFlowModuleIndexes();
+  info('PTS v2 daily flow indexes ensured');
+
+  const { ensureAiModuleIndexes, bootstrapAiModule } = require('./modules/ai');
+  await ensureAiModuleIndexes();
+  bootstrapAiModule();
+  info('PTS v2 AI module indexes ensured and worker started');
+
+  const { ensureDiscussFlowModuleIndexes } = require('./modules/discuss-flow');
+  await ensureDiscussFlowModuleIndexes();
+  info('PTS v2 discuss flow indexes ensured');
 }
 
 async function bootstrap() {

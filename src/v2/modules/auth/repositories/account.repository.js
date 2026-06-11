@@ -56,6 +56,18 @@ async function findById(accountId, { includePassword = false, activeOnly = false
   return query.exec();
 }
 
+async function findByIds(accountIds = []) {
+  const ids = [...new Set((accountIds || []).filter(Boolean).map(String))];
+  if (!ids.length) return [];
+  const Account = getAccountModel();
+  return Account.find({
+    _id: { $in: ids },
+    isDeleted: false,
+  })
+    .lean({ virtuals: false })
+    .exec();
+}
+
 function sanitizeAccountCreatePayload(payload = {}) {
   const doc = { ...payload };
   if (doc.email == null || doc.email === '') delete doc.email;
@@ -85,13 +97,14 @@ async function findFirstByAccountType(accountType) {
     .exec();
 }
 
-async function findAllByAccountType(accountType) {
+async function findAllByAccountType(accountType, { activeOnly = true } = {}) {
   const Account = getAccountModel();
-  return Account.find({
+  const query = {
     accountType,
     isDeleted: false,
-    status: 'active',
-  })
+  };
+  if (activeOnly) query.status = 'active';
+  return Account.find(query)
     .sort({ createdAt: 1 })
     .exec();
 }
@@ -118,6 +131,7 @@ module.exports = {
   findByUsername,
   findByEmailLocalPart,
   findById,
+  findByIds,
   createAccount,
   updateLastLogin,
   findFirstByAccountType,

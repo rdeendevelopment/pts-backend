@@ -7,6 +7,9 @@ function buildListQuery(filters = {}) {
   if (filters.department) query.department = String(filters.department).trim();
   if (filters.employmentType) query.employmentType = filters.employmentType;
   if (filters.managerId) query.managerId = filters.managerId;
+  if (filters.excludeAccountIds?.length) {
+    query.accountId = { $nin: filters.excludeAccountIds };
+  }
 
   if (filters.search) {
     const term = String(filters.search).trim();

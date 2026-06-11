@@ -1,7 +1,7 @@
 /** Product modules shown in Module Management (core + optional features). */
 const CORE_MODULE_KEYS = ['dashboard', 'users', 'clients', 'projects', 'activity'];
 
-const OPTIONAL_FEATURE_MODULE_KEYS = ['tasks', 'converse', 'clock_activity'];
+const OPTIONAL_FEATURE_MODULE_KEYS = ['tasks', 'converse', 'clock_activity', 'daily_flow', 'discuss_flow'];
 
 /** @deprecated Renamed to clock_activity — used only for seed migration */
 const LEGACY_CLOCK_MODULE_KEY = 'clock';

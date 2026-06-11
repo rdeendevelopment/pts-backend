@@ -42,12 +42,19 @@ const MANAGER_PERMISSION_KEYS = [
   'budgets.manage',
   'activity.view',
   'activity.manage',
+  'clock_activity.view',
+  'clock_activity.manage',
   'tasks.view',
   'tasks.manage',
   'converse.view',
   'converse.manage',
   'reports.view',
   'reports.manage',
+  'daily_flow.view',
+  'daily_flow.manage',
+  'daily_flow.admin',
+  'discuss_flow.view',
+  'discuss_flow.manage',
 ];
 
 const EMPLOYEE_PERMISSION_KEYS = [
@@ -56,8 +63,13 @@ const EMPLOYEE_PERMISSION_KEYS = [
   'projects.view',
   'budgets.view',
   'activity.view',
+  'clock_activity.view',
   'tasks.view',
   'converse.view',
+  'daily_flow.view',
+  'daily_flow.manage',
+  'discuss_flow.view',
+  'discuss_flow.manage',
 ];
 
 const CLIENT_PERMISSION_KEYS = [

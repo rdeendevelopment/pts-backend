@@ -144,6 +144,10 @@ const updateRules = [
   body('joining_date').optional().isISO8601().withMessage('joining_date must be a valid date'),
   body('timezone').optional().isString().withMessage('timezone must be a string'),
   body('notes').optional().isString().withMessage('notes must be a string'),
+  body('accountType').optional().isString().withMessage('accountType must be a string'),
+  body('account_type').optional().isString().withMessage('account_type must be a string'),
+  body('clientId').optional({ nullable: true, checkFalsy: true }).isString().withMessage('clientId must be a string'),
+  body('client_id').optional({ nullable: true, checkFalsy: true }).isString().withMessage('client_id must be a string'),
 ];
 
 const statusRules = [

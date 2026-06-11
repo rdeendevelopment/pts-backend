@@ -20,6 +20,9 @@ const converseModule = require('./modules/converse');
 const announcementsModule = require('./modules/announcements');
 const boardSharesModule = require('./modules/board-shares');
 const schedulerModule = require('./modules/scheduler');
+const dailyFlowModule = require('./modules/daily-flow');
+const aiModule = require('./modules/ai');
+const discussFlowModule = require('./modules/discuss-flow');
 const uploadsRoutes = require('./routes/uploads.routes');
 const { bootstrap, getBootstrapState } = require('./bootstrap');
 const { getV2MongoStatus } = require('./database/connection');
@@ -72,6 +75,9 @@ if (env.v2.enabled) {
   router.use('/converse', converseModule.routes);
   router.use('/announcements', announcementsModule.routes);
   router.use('/scheduler', schedulerModule.routes);
+  router.use('/daily-flow', dailyFlowModule.routes);
+  router.use('/ai', aiModule.routes);
+  router.use('/discuss-flow', discussFlowModule.routes);
   router.use('/uploads', uploadsRoutes);
 
   router.use((req, res, next) => {

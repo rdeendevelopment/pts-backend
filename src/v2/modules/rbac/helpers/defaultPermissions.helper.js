@@ -20,12 +20,19 @@ const DEFAULT_PERMISSIONS = [
   { key: 'budgets.manage', name: 'Manage budgets', description: 'Create and update budgets.', category: 'manage' },
   { key: 'activity.view', name: 'View activity', description: 'Read activity and time entries.', category: 'view' },
   { key: 'activity.manage', name: 'Manage activity', description: 'Create and update activity entries.', category: 'manage' },
+  { key: 'clock_activity.view', name: 'View clock activity', description: 'Access live clock-in / clock-out time tracking.', category: 'view' },
+  { key: 'clock_activity.manage', name: 'Manage clock activity', description: 'Manage live clock-in / clock-out time tracking.', category: 'manage' },
   { key: 'tasks.view', name: 'View tasks', description: 'Read tasks.', category: 'view' },
   { key: 'tasks.manage', name: 'Manage tasks', description: 'Create and update tasks.', category: 'manage' },
   { key: 'converse.view', name: 'View converse', description: 'Read conversations.', category: 'view' },
   { key: 'converse.manage', name: 'Manage converse', description: 'Create and update conversations.', category: 'manage' },
   { key: 'reports.view', name: 'View reports', description: 'Read reports and dashboards.', category: 'view' },
   { key: 'reports.manage', name: 'Manage reports', description: 'Configure reports and dashboards.', category: 'manage' },
+  { key: 'daily_flow.view', name: 'View daily flow', description: 'Read own daily flow records.', category: 'view' },
+  { key: 'daily_flow.manage', name: 'Manage daily flow', description: 'Create and update own daily flow records.', category: 'manage' },
+  { key: 'daily_flow.admin', name: 'Admin daily flow', description: 'View work-related daily flow summaries.', category: 'manage' },
+  { key: 'discuss_flow.view', name: 'View DiscussFlow', description: 'Read workspaces, topics, and discussion artifacts.', category: 'view' },
+  { key: 'discuss_flow.manage', name: 'Manage DiscussFlow', description: 'Create and update DiscussFlow content.', category: 'manage' },
 ];
 
 module.exports = DEFAULT_PERMISSIONS;

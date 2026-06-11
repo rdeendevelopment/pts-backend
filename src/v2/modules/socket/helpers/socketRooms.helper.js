@@ -38,6 +38,10 @@ function getConversationRoom(conversationId) {
   return `${ROOM_PREFIX.CONVERSATION}:${toIdString(conversationId, 'conversationId')}`;
 }
 
+function getDiscussFlowTopicRoom(topicId) {
+  return `${ROOM_PREFIX.DISCUSSFLOW_TOPIC}:${toIdString(topicId, 'topicId')}`;
+}
+
 const ALLOWED_PREFIXES = new Set(Object.values(ROOM_PREFIX));
 
 function assertKnownRoom(roomName) {
@@ -46,6 +50,10 @@ function assertKnownRoom(roomName) {
       status: 400,
       code: socketErrorCodes.SOCKET_ROOM_INVALID,
     });
+  }
+
+  if (roomName.startsWith(`${ROOM_PREFIX.DISCUSSFLOW_TOPIC}:`)) {
+    return roomName;
   }
 
   const prefix = roomName.split(':')[0];
@@ -67,6 +75,7 @@ module.exports = {
   getProjectRoom,
   getTaskRoom,
   getConversationRoom,
+  getDiscussFlowTopicRoom,
   assertKnownRoom,
   ROOM_PREFIX,
 };

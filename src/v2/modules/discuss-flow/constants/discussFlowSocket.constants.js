@@ -1,0 +1,50 @@
+/** DiscussFlow realtime events (colon notation). */
+const DISCUSSFLOW_SOCKET_EVENTS = {
+  TOPIC_JOINED: 'discussflow:topic:joined',
+  TOPIC_LEFT: 'discussflow:topic:left',
+  MESSAGE_CREATED: 'discussflow:message:created',
+  MESSAGE_UPDATED: 'discussflow:message:updated',
+  MESSAGE_DELETED: 'discussflow:message:deleted',
+  TYPING_START: 'discussflow:typing:start',
+  TYPING_STOP: 'discussflow:typing:stop',
+  REQUIREMENT_CREATED: 'discussflow:requirement:created',
+  QUESTION_CREATED: 'discussflow:question:created',
+  DECISION_CREATED: 'discussflow:decision:created',
+  RIGHT_PANEL_UPDATED: 'discussflow:right-panel:updated',
+  IMPORT_CREATED: 'discussflow:import:created',
+  IMPORT_MESSAGES_SAVED: 'discussflow:import:messages_saved',
+  AI_REVIEW_READY: 'discussflow:ai-review:ready',
+  AI_REVIEW_FAILED: 'discussflow:ai-review:failed',
+  AI_REVIEW_ITEM_APPROVED: 'discussflow:ai-review:item:approved',
+  AI_REVIEW_ITEM_DISMISSED: 'discussflow:ai-review:item:dismissed',
+  DOCUMENT_CREATED: 'discussflow:document:created',
+  DOCUMENT_UPDATED: 'discussflow:document:updated',
+  DOCUMENT_DRAFT_CREATED: 'discussflow:document:draft_created',
+  DOCUMENT_REVIEW_SUBMITTED: 'discussflow:document:review_submitted',
+  DOCUMENT_LOCKED: 'discussflow:document:locked',
+  DOCUMENT_VERSION_CREATED: 'discussflow:document:version_created',
+  REQUIREMENT_REVIEW_SUBMITTED: 'discussflow:requirement:review_submitted',
+  REQUIREMENT_APPROVED: 'discussflow:requirement:approved',
+  REQUIREMENT_LOCKED: 'discussflow:requirement:locked',
+  REQUIREMENT_VERSION_CREATED: 'discussflow:requirement:version_created',
+  DECISION_APPROVED: 'discussflow:decision:approved',
+  DECISION_LOCKED: 'discussflow:decision:locked',
+  DECISION_VERSION_CREATED: 'discussflow:decision:version_created',
+  TRUTH_UPDATED: 'discussflow:truth:updated',
+  HANDOFF_CREATED: 'discussflow:handoff:created',
+  HANDOFF_COMPLETED: 'discussflow:handoff:completed',
+  HANDOFF_FAILED: 'discussflow:handoff:failed',
+  RESUME_UPDATED: 'discussflow:resume:updated',
+};
+
+const DISCUSSFLOW_CLIENT_EVENTS = {
+  ROOM_JOIN_TOPIC: 'room.join.discussflow.topic',
+  ROOM_LEAVE_TOPIC: 'room.leave.discussflow.topic',
+  TYPING_START: 'discussflow.typing.start',
+  TYPING_STOP: 'discussflow.typing.stop',
+};
+
+module.exports = {
+  DISCUSSFLOW_SOCKET_EVENTS,
+  DISCUSSFLOW_CLIENT_EVENTS,
+};

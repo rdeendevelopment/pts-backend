@@ -143,6 +143,26 @@ const DEFAULT_MODULES = [
     routeBase: '/reports',
     isSystem: true,
   },
+  {
+    key: 'daily_flow',
+    name: 'Daily Flow',
+    description: 'User-first daily planning, goals, catchups, mood, and reflections.',
+    category: 'work_management',
+    status: 'inactive',
+    sortOrder: 125,
+    routeBase: '/daily-flow',
+    isSystem: true,
+  },
+  {
+    key: 'discuss_flow',
+    name: 'DiscussFlow',
+    description: 'Topic-first discussions that become requirements, decisions, and documents.',
+    category: 'communication',
+    status: 'inactive',
+    sortOrder: 130,
+    routeBase: '/discuss-flow',
+    isSystem: true,
+  },
 ];
 
 module.exports = DEFAULT_MODULES;

@@ -10,6 +10,7 @@ const ALL_KEYS = [
   'projects.view',
   'budgets.view',
   'activity.view',
+  'clock_activity.view',
   'tasks.view',
   'converse.view',
 ];
@@ -42,6 +43,7 @@ test('employee receives minimal work permissions', () => {
     'projects.view',
     'budgets.view',
     'activity.view',
+    'clock_activity.view',
     'tasks.view',
     'converse.view',
   ]);

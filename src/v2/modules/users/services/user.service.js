@@ -23,6 +23,19 @@ const userRepository = require('../repositories/user.repository');
 const rbacAccessService = require('../../rbac/services/rbacAccess.service');
 const { toUserDto, toUserSummaryDto } = require('../dto/user.dto');
 
+const INTERNAL_ACCOUNT_TYPES = new Set(['super_admin', 'admin', 'manager', 'employee']);
+
+function mergeAccountFields(userDoc, accountDoc) {
+  if (!userDoc || !accountDoc) return userDoc;
+  const user = userDoc.toObject ? userDoc.toObject() : { ...userDoc };
+  const account = accountDoc.toObject ? accountDoc.toObject() : accountDoc;
+  return {
+    ...user,
+    accountType: account.accountType || null,
+    clientId: account.clientId || null,
+  };
+}
+
 function normalizeEmail(email) {
   const normalized = String(email || '').toLowerCase().trim();
   return normalized || null;
@@ -143,6 +156,33 @@ function resolveAccountType(payload) {
   return String(payload.accountType || payload.account_type || 'employee').trim().toLowerCase();
 }
 
+function assertInternalAccountType(accountType) {
+  if (!INTERNAL_ACCOUNT_TYPES.has(accountType)) {
+    throw new AppError('Client accounts must be managed as client contacts, not users', {
+      status: 400,
+      code: userErrorCodes.USER_INVALID_STATUS,
+      details: {
+        accountType,
+        hint: 'Use /clients/:clientId/contacts for client portal logins.',
+      },
+    });
+  }
+}
+
+async function assertUserAccountIsInternal(user) {
+  const account = await accountRepository.findById(user.accountId);
+  if (account?.accountType === 'client') {
+    throw new AppError('Client accounts must be managed as client contacts, not users', {
+      status: 404,
+      code: userErrorCodes.USER_NOT_FOUND,
+      details: {
+        hint: 'Use /clients/:clientId/contacts for client portal logins.',
+      },
+    });
+  }
+  return account;
+}
+
 async function resolveClientIdForAccountType(accountType, rawClientId) {
   if (accountType !== 'client') return null;
   const clientId = assertObjectId(rawClientId, 'clientId');
@@ -167,6 +207,8 @@ async function resolveAccountForCreate(payload) {
         code: userErrorCodes.USER_ACCOUNT_NOT_FOUND,
       });
     }
+
+    assertInternalAccountType(account.accountType || 'employee');
 
     const existingUser = await userRepository.findByAccountId(accountId);
     if (existingUser) {
@@ -208,6 +250,7 @@ async function resolveAccountForCreate(payload) {
   const passwordHash = await passwordService.hashPassword(payload.password);
   const status = payload.status && USER_STATUSES.includes(payload.status) ? payload.status : 'active';
   const accountType = resolveAccountType(payload);
+  assertInternalAccountType(accountType);
   const clientId = await resolveClientIdForAccountType(
     accountType,
     payload.clientId || payload.client_id,
@@ -356,7 +399,13 @@ function resolveListSort(query = {}) {
 }
 
 async function enrichUserRows(items, includeRoles) {
-  let mappedItems = items.map(toUserDto);
+  const accountIds = items.map((row) => row.accountId).filter(Boolean);
+  const accounts = await accountRepository.findByIds(accountIds);
+  const accountsById = new Map(accounts.map((account) => [String(account._id), account]));
+
+  let mappedItems = items.map((row) => toUserDto(
+    mergeAccountFields(row, accountsById.get(String(row.accountId)))
+  ));
 
   if (includeRoles && mappedItems.length) {
     const rolesByAccountId = await rbacAccessService.getSessionRolesForAccounts(
@@ -385,6 +434,9 @@ async function listUsers(query = {}) {
     employmentType: query.employmentType || query.employment_type,
     managerId: query.managerId || query.manager_id || null,
   };
+
+  const clientAccounts = await accountRepository.findAllByAccountType('client', { activeOnly: false });
+  filters.excludeAccountIds = clientAccounts.map((account) => account._id);
 
   if (filters.managerId) {
     filters.managerId = assertObjectId(filters.managerId, 'managerId');
@@ -421,7 +473,8 @@ async function listUsers(query = {}) {
 
 async function getUserById(userId) {
   const user = await getUserOrThrow(userId);
-  return toUserDto(user);
+  const account = await assertUserAccountIsInternal(user);
+  return toUserDto(mergeAccountFields(user, account));
 }
 
 async function getMyProfile(accountId) {
@@ -456,6 +509,7 @@ async function ensureUserProfileForAccount(accountId) {
       code: userErrorCodes.USER_ACCOUNT_NOT_FOUND,
     });
   }
+  assertInternalAccountType(account.accountType || 'employee');
 
   const email = normalizeEmail(account.email);
   const byEmail = email ? await userRepository.findByEmail(email) : null;
@@ -520,6 +574,7 @@ async function createUser(payload) {
 async function updateUser(userId, payload) {
   const user = await getUserOrThrow(userId);
   const updates = buildUserPayload(payload, user, { forUpdate: true });
+  const account = await assertUserAccountIsInternal(user);
 
   if (updates.email && updates.email !== user.email) {
     await assertEmailAvailable(updates.email, {
@@ -544,6 +599,16 @@ async function updateUser(userId, payload) {
   if (updates.username && updates.username !== normalizeUsername(user.username)) {
     accountUpdates.username = updates.username;
   }
+  if (payload.accountType !== undefined || payload.account_type !== undefined) {
+    const accountType = resolveAccountType(payload);
+    assertInternalAccountType(accountType);
+    const clientId = await resolveClientIdForAccountType(
+      accountType,
+      payload.clientId || payload.client_id,
+    );
+    accountUpdates.accountType = accountType;
+    accountUpdates.clientId = clientId;
+  }
   if (Object.keys(accountUpdates).length) {
     await accountRepository.updateAccount(user.accountId, accountUpdates);
   }
@@ -561,12 +626,16 @@ async function updateUser(userId, payload) {
   }
 
   const updated = await userRepository.updateUser(user._id, updates);
-  return toUserDto(updated);
+  const updatedAccount = Object.keys(accountUpdates).length
+    ? await accountRepository.findById(user.accountId)
+    : account;
+  return toUserDto(mergeAccountFields(updated, updatedAccount));
 }
 
 async function updateUserStatus(userId, status) {
   assertValidStatus(status);
   const user = await getUserOrThrow(userId);
+  await assertUserAccountIsInternal(user);
 
   const updated = await userRepository.updateUser(user._id, { status });
   await accountRepository.updateAccountStatus(user.accountId, status);
@@ -576,6 +645,7 @@ async function updateUserStatus(userId, status) {
 
 async function deleteUser(userId, { force = false } = {}) {
   const user = await getUserOrThrow(userId);
+  await assertUserAccountIsInternal(user);
   const directReports = await userRepository.countActiveDirectReports(user._id);
 
   if (directReports > 0 && !force) {
@@ -624,6 +694,7 @@ async function applyAccountPassword(accountId, password, { mustChange = false } 
 
 async function resetUserPassword(userId, payload = {}) {
   const user = await getUserOrThrow(userId);
+  await assertUserAccountIsInternal(user);
   await applyAccountPassword(user.accountId, resolvePasswordValue(payload), {
     mustChange: Boolean(payload.mustChangePassword ?? payload.must_change_password),
   });
