@@ -33,6 +33,7 @@ const {
 const router = Router();
 
 const canViewActivity = authorize(['activity.view', 'activity.manage'], { mode: 'any' });
+const canViewAllActivity = authorize(['activity.view_all', 'activity.manage'], { mode: 'any' });
 const canManageActivity = authorize('activity.manage');
 
 router.use(authenticate);
@@ -214,7 +215,7 @@ router.get(
 
 router.get(
   '/admin/workforce-summary',
-  canViewActivity,
+  canViewAllActivity,
   workforceSummaryRules,
   validateRequest,
   activityAdminController.getWorkforceSummary

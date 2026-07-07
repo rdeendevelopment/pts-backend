@@ -8,10 +8,11 @@ const timeValidationService = require('./timeValidation.service');
 const counterConsumptionService = require('./counterConsumption.service');
 const { getWeekBounds } = require('../helpers/week.helper');
 const {
-  assertActivityEmployeeProfile,
   assertOwnUserOrManage,
+  assertOwnUserOrViewAll,
   accountHasManagePermission,
   canViewAllProjectTimeEntries,
+  buildActivityUserScope,
 } = require('../helpers/access.helper');
 const userSummaryHelper = require('../helpers/userSummary.helper');
 const {
@@ -73,14 +74,7 @@ function applyWeekListDateFilters(filters, query) {
 }
 
 async function listWeeks(query, req) {
-  const filters = {};
-  if (query.user_id || query.userId) {
-    filters.userId = query.user_id || query.userId;
-    assertOwnUserOrManage(req, filters.userId);
-  } else if (!canViewAllProjectTimeEntries(req)) {
-    assertActivityEmployeeProfile(req);
-    filters.userId = req.v2Activity.userId;
-  }
+  const filters = buildActivityUserScope(req, query);
   if (query.status && query.status !== 'all') filters.status = query.status;
   applyWeekListDateFilters(filters, query);
 
@@ -108,7 +102,7 @@ async function attachWeekUserSummary(weekDto, weekDoc) {
 
 async function getWeekById(weekId, req) {
   const week = await getWeekOrThrow(weekId);
-  assertOwnUserOrManage(req, week.userId);
+  assertOwnUserOrViewAll(req, week.userId);
 
   const entries = await timeEntryRepository.listEntries({ timeWeekId: week._id });
   const report = buildWeeklyReport(entries, {

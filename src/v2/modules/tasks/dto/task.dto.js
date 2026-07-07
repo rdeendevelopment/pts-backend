@@ -179,6 +179,7 @@ function toNotificationDto(notification) {
     entityId: doc.entityId || (doc.taskId ? String(doc.taskId) : null),
     actorId: doc.actorId ? String(doc.actorId) : (metadata.triggeredBy ? String(metadata.triggeredBy) : null),
     actorName: doc.actorName || metadata.triggeredByName || '',
+    module: doc.module || null,
     priority: doc.priority || 'normal',
     type: doc.type,
     title: doc.title || taskTitle,

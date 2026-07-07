@@ -9,10 +9,9 @@ const projectAssignmentRepository = require('../../projects/repositories/project
 const timeEntryRepository = require('../repositories/timeEntry.repository');
 const timeWeekRepository = require('../repositories/timeWeek.repository');
 const {
-  assertActivityEmployeeProfile,
-  assertOwnUserOrManage,
   accountHasManagePermission,
   canViewAllProjectTimeEntries,
+  buildActivityUserScope,
 } = require('../helpers/access.helper');
 const userSummaryHelper = require('../helpers/userSummary.helper');
 const {
@@ -34,24 +33,10 @@ function parseEndDate(value) {
 }
 
 async function getProjectSummary(projectId, query, req) {
-  const requestedUserId = query.userId || query.user_id || null;
-  if (requestedUserId) {
-    assertOwnUserOrManage(req, requestedUserId);
-  } else if (!canViewAllProjectTimeEntries(req)) {
-    assertActivityEmployeeProfile(req);
-    assertOwnUserOrManage(req, req.v2Activity.userId);
-  }
-
-  await projectsModule.getProjectForActivity(projectId);
+  await projectsModule.getProjectForActivity(projectId, req);
   const stats = await projectsModule.getProjectStats(projectId);
 
-  const entryFilters = { projectId };
-  if (requestedUserId) {
-    entryFilters.userId = requestedUserId;
-  } else if (!canViewAllProjectTimeEntries(req)) {
-    assertActivityEmployeeProfile(req);
-    entryFilters.userId = req.v2Activity.userId;
-  }
+  const entryFilters = buildActivityUserScope(req, query, { projectId });
   if (query.startDate || query.start_date) {
     entryFilters.entryDateFrom = new Date(query.startDate || query.start_date);
   }
@@ -59,8 +44,7 @@ async function getProjectSummary(projectId, query, req) {
     entryFilters.entryDateTo = parseEndDate(query.endDate || query.end_date);
   }
 
-  const targetUserId = requestedUserId
-    || (canViewAllProjectTimeEntries(req) ? null : req.v2Activity.userId);
+  const targetUserId = entryFilters.userId || null;
 
   const entries = await timeEntryRepository.listEntries(entryFilters);
   const weekIds = [...new Set(entries.map((entry) => String(entry.timeWeekId)).filter(Boolean))];
@@ -85,7 +69,7 @@ async function getProjectSummary(projectId, query, req) {
   const assignment = await projectsModule.getAssignmentForUser(projectId, targetUserId);
   let userBreakdown = [];
 
-  if (accountHasManagePermission(req) && !(query.userId || query.user_id)) {
+  if (canViewAllProjectTimeEntries(req) && !targetUserId) {
     const assignments = await projectAssignmentRepository.listByProjectId(projectId, { status: 'active' });
     const userMap = await userSummaryHelper.resolveUsersByIds(assignments.map((row) => row.userId));
     userBreakdown = assignments.map((row) => {
@@ -121,15 +105,27 @@ async function getProjectSummary(projectId, query, req) {
   }
 
   const totalMinutes = entries.reduce((sum, entry) => sum + Number(entry.minutes || 0), 0);
+  const canViewAll = canViewAllProjectTimeEntries(req);
+  const visibleStats = canViewAll
+    ? {
+      approvedMinutes: Number(stats?.totalApprovedMinutes || 0),
+      assignedMinutes: Number(stats?.totalAssignedMinutes || 0),
+      consumedMinutes: Number(stats?.totalConsumedMinutes || 0),
+      remainingMinutes: Number(stats?.totalRemainingMinutes || 0),
+      availableToAssignMinutes: Number(stats?.totalAvailableToAssignMinutes || 0),
+    }
+    : {
+      approvedMinutes: Number(assignment?.allocation?.allocatedMinutes || 0),
+      assignedMinutes: Number(assignment?.allocation?.allocatedMinutes || 0),
+      consumedMinutes: Number(assignment?.stats?.consumedMinutes || 0),
+      remainingMinutes: Number(assignment?.stats?.remainingMinutes || 0),
+      availableToAssignMinutes: 0,
+    };
 
   return {
     projectId: String(projectId),
     userId: targetUserId ? String(targetUserId) : null,
-    approvedMinutes: Number(stats?.totalApprovedMinutes || 0),
-    assignedMinutes: Number(stats?.totalAssignedMinutes || 0),
-    consumedMinutes: Number(stats?.totalConsumedMinutes || 0),
-    remainingMinutes: Number(stats?.totalRemainingMinutes || 0),
-    availableToAssignMinutes: Number(stats?.totalAvailableToAssignMinutes || 0),
+    ...visibleStats,
     totalMinutes,
     currentWeekTotalMinutes,
     statusTotals,
@@ -148,26 +144,16 @@ async function getProjectSummary(projectId, query, req) {
 }
 
 async function getProjectWeeklyActivity(projectId, query, req) {
-  const requestedUserId = query.userId || query.user_id || null;
-
-  await projectsModule.getProjectForActivity(projectId);
+  await projectsModule.getProjectForActivity(projectId, req);
 
   const anchorDate = query.weekStartDate || query.week_start || query.weekEnding || query.week_ending || new Date();
   const { weekStartDate, weekEndDate, timezone } = getWeekBounds(anchorDate);
 
-  const entryFilters = {
+  const entryFilters = buildActivityUserScope(req, query, {
     projectId,
     entryDateFrom: weekStartDate,
     entryDateTo: weekEndDate,
-  };
-
-  if (requestedUserId) {
-    assertOwnUserOrManage(req, requestedUserId);
-    entryFilters.userId = requestedUserId;
-  } else if (!canViewAllProjectTimeEntries(req)) {
-    assertActivityEmployeeProfile(req);
-    entryFilters.userId = req.v2Activity.userId;
-  }
+  });
 
   if (query.status) entryFilters.status = query.status;
   if (query.entryDateFrom) entryFilters.entryDateFrom = new Date(query.entryDateFrom);
@@ -236,18 +222,9 @@ async function getProjectWeeklyActivity(projectId, query, req) {
 }
 
 async function listProjectTimeEntries(projectId, query, req) {
-  await projectsModule.getProjectForActivity(projectId);
+  await projectsModule.getProjectForActivity(projectId, req);
 
-  const entryFilters = { projectId };
-  const requestedUserId = query.userId || query.user_id || null;
-
-  if (requestedUserId) {
-    assertOwnUserOrManage(req, requestedUserId);
-    entryFilters.userId = requestedUserId;
-  } else if (!canViewAllProjectTimeEntries(req)) {
-    assertActivityEmployeeProfile(req);
-    entryFilters.userId = req.v2Activity.userId;
-  }
+  const entryFilters = buildActivityUserScope(req, query, { projectId });
 
   if (query.startDate || query.start_date) {
     entryFilters.entryDateFrom = new Date(query.startDate || query.start_date);

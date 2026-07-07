@@ -10,6 +10,7 @@ const ALL_KEYS = [
   'projects.view',
   'budgets.view',
   'activity.view',
+  'activity.view_all',
   'clock_activity.view',
   'tasks.view',
   'converse.view',
@@ -47,4 +48,12 @@ test('employee receives minimal work permissions', () => {
     'tasks.view',
     'converse.view',
   ]);
+});
+
+test('manager receives activity view-all while employee does not', () => {
+  const manager = resolvePermissionKeysForRole('manager', ALL_KEYS, PERMISSIONS_BY_KEY);
+  const employee = resolvePermissionKeysForRole('employee', ALL_KEYS, PERMISSIONS_BY_KEY);
+
+  assert.equal(manager.includes('activity.view_all'), true);
+  assert.equal(employee.includes('activity.view_all'), false);
 });

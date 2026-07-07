@@ -214,7 +214,7 @@ test('assignment.allowExceed=true bypasses assignment cap', async () => {
   assert.equal(result.canLog, true);
 });
 
-test('budget exceed remains controlled by project.allowBudgetExceed', async () => {
+test('budget exceed blocks when neither project nor assignment allows exceed', async () => {
   stubValidationDependencies({
     project: { allowBudgetExceed: false },
     assignment: {
@@ -239,11 +239,39 @@ test('budget exceed remains controlled by project.allowBudgetExceed', async () =
     }),
     (err) => err.code === activityErrorCodes.ACTIVITY_PROJECT_BUDGET_EXCEEDED
   );
+});
 
+test('budget exceed is allowed when project allows exceed', async () => {
   stubValidationDependencies({
     project: { allowBudgetExceed: true },
     assignment: {
       allocation: { ...assignmentBase.allocation, allowExceed: false },
+      stats: { consumedMinutes: 0 },
+    },
+    budgets: [{ _id: BUDGET_ID, approvedMinutes: 1000, consumedMinutes: 900 }],
+    pendingDraftMinutes: 0,
+    draftBudgetMinutes: 100,
+  });
+
+  const allowed = await timeValidationService.validateTimeEntry({
+    projectId: PROJECT_ID,
+    userId: USER_ID,
+    workCategoryId: CATEGORY_ID,
+    budgetId: BUDGET_ID,
+    entryDate: ENTRY_DATE,
+    minutes: 200,
+    timeWeek: { _id: '507f1f77bcf86cd799439020', userId: USER_ID, status: 'draft' },
+    throwOnError: true,
+  });
+
+  assert.equal(allowed.canLog, true);
+});
+
+test('budget exceed is allowed when assignment allows exceed', async () => {
+  stubValidationDependencies({
+    project: { allowBudgetExceed: false },
+    assignment: {
+      allocation: { ...assignmentBase.allocation, allowExceed: true },
       stats: { consumedMinutes: 0 },
     },
     budgets: [{ _id: BUDGET_ID, approvedMinutes: 1000, consumedMinutes: 900 }],

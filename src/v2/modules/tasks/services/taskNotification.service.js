@@ -37,11 +37,28 @@ function notificationLink(payload = {}) {
   return null;
 }
 
+function notificationModule(payload = {}) {
+  if (payload.module) return payload.module;
+  if (payload.entityType === 'activity_week' || payload.activityId) return 'activity';
+  if (payload.entityType === 'task' || payload.taskId) return 'task';
+  return null;
+}
+
 function emptyNotificationPage(query = {}) {
   const pagination = parseNotificationListQuery(query);
   return {
     items: [],
     pagination: buildPaginationMeta({ ...pagination, total: 0 }),
+  };
+}
+
+function currentUserOnlyReq(req) {
+  return {
+    ...req,
+    query: {
+      ...(req.query || {}),
+      userId: undefined,
+    },
   };
 }
 
@@ -54,6 +71,7 @@ async function listNotifications(req, query = {}) {
     unreadOnly: pagination.unreadOnly,
     skip: pagination.skip,
     limit: pagination.limit,
+    taskOnly: true,
   });
 
   return {
@@ -66,17 +84,17 @@ async function getUnreadCount(req) {
   const userId = await resolveNotificationUserId(req, findUserIdFromAuth);
   if (!userId) return { count: 0 };
 
-  const count = await taskNotificationRepository.countUnreadByUserId(userId);
+  const count = await taskNotificationRepository.countUnreadByUserId(userId, { taskOnly: true });
   return { count };
 }
 
-async function markNotificationRead(notificationId, req) {
+async function markNotificationRead(notificationId, req, { taskOnly = true } = {}) {
   const userId = await resolveNotificationUserId(req, findUserIdFromAuth);
   if (!userId) {
     throw new AppError('Notification not found', { status: 404 });
   }
   const id = assertObjectId(notificationId, 'notificationId');
-  const row = await taskNotificationRepository.markReadById(id, userId);
+  const row = await taskNotificationRepository.markReadById(id, userId, { taskOnly });
 
   if (!row) {
     throw new AppError('Notification not found', { status: 404 });
@@ -85,12 +103,46 @@ async function markNotificationRead(notificationId, req) {
   return toNotificationDto(row);
 }
 
-async function markAllNotificationsRead(req) {
+async function markAllNotificationsRead(req, { taskOnly = true } = {}) {
   const userId = await resolveNotificationUserId(req, findUserIdFromAuth);
   if (userId) {
-    await taskNotificationRepository.markAllReadByUserId(userId);
+    await taskNotificationRepository.markAllReadByUserId(userId, { taskOnly });
   }
   return { success: true };
+}
+
+async function listGlobalNotifications(req, query = {}) {
+  const userId = await resolveNotificationUserId(currentUserOnlyReq(req), findUserIdFromAuth);
+  if (!userId) return emptyNotificationPage(query);
+
+  const pagination = parseNotificationListQuery(query);
+  const { items, total } = await taskNotificationRepository.listByUserId(userId, {
+    unreadOnly: pagination.unreadOnly,
+    skip: pagination.skip,
+    limit: pagination.limit,
+    taskOnly: false,
+  });
+
+  return {
+    items: items.map(toNotificationDto),
+    pagination: buildPaginationMeta({ ...pagination, total }),
+  };
+}
+
+async function getGlobalUnreadCount(req) {
+  const userId = await resolveNotificationUserId(currentUserOnlyReq(req), findUserIdFromAuth);
+  if (!userId) return { count: 0 };
+
+  const count = await taskNotificationRepository.countUnreadByUserId(userId, { taskOnly: false });
+  return { count };
+}
+
+async function markGlobalNotificationRead(notificationId, req) {
+  return markNotificationRead(notificationId, currentUserOnlyReq(req), { taskOnly: false });
+}
+
+async function markAllGlobalNotificationsRead(req) {
+  return markAllNotificationsRead(currentUserOnlyReq(req), { taskOnly: false });
 }
 
 async function createAndEmitNotification(payload) {
@@ -110,6 +162,7 @@ async function createAndEmitNotification(payload) {
     entityId: payload.entityId ? String(payload.entityId) : null,
     actorId: optionalObjectId(payload.actorId, 'actorId'),
     actorName: payload.actorName || '',
+    module: notificationModule(payload),
     priority: payload.priority || 'normal',
     type: payload.type,
     title: payload.title || 'Notification',
@@ -182,6 +235,9 @@ async function notifyMention({
     userId: recipientId,
     taskId: task._id,
     projectId: task.projectId,
+    module: 'task',
+    entityType: 'task',
+    entityId: String(task._id),
     type: 'task_mentioned',
     title: taskTitle,
     body: `${triggeredByName || 'Someone'} mentioned you in "${snippet(taskTitle, 60)}"`,
@@ -250,6 +306,10 @@ module.exports = {
   getUnreadCount,
   markNotificationRead,
   markAllNotificationsRead,
+  listGlobalNotifications,
+  getGlobalUnreadCount,
+  markGlobalNotificationRead,
+  markAllGlobalNotificationsRead,
   createAndEmitNotification,
   notifyAdmins,
   notifyMention,

@@ -12,6 +12,7 @@ const TaskNotificationSchema = new Schema(
     entityId: { type: String, default: null, index: true },
     actorId: { type: Schema.Types.ObjectId, default: null, index: true },
     actorName: { type: String, default: null },
+    module: { type: String, default: null, index: true },
     priority: { type: String, default: 'normal', index: true },
     link: { type: String, default: null },
     type: { type: String, required: true, trim: true },

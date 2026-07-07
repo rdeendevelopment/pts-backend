@@ -94,7 +94,9 @@ test('getProjectSummary groups entries by week and returns stats', async () => {
   });
 
   assert.equal(result.totalMinutes, 90);
-  assert.equal(result.approvedMinutes, 1000);
+  assert.equal(result.approvedMinutes, 480);
+  assert.equal(result.assignedMinutes, 480);
+  assert.equal(result.consumedMinutes, 120);
   assert.equal(result.weeks.length, 1);
   assert.equal(result.weeks[0].totalMinutes, 90);
   assert.equal(result.weeks[0].status, 'submitted');
@@ -143,6 +145,66 @@ test('getProjectWeeklyActivity returns seven grouped days', async () => {
   assert.equal(result.totalMinutes, 45);
   assert.equal(result.entries.length, 1);
   assert.equal(result.users.length, 1);
+});
+
+test('employee project report endpoints always query only own entries', async () => {
+  const projectId = '507f1f77bcf86cd799439011';
+  const employeeId = '507f1f77bcf86cd799439012';
+  const otherUserId = '507f1f77bcf86cd799439013';
+  const captured = [];
+
+  projectsModule.getProjectForActivity = async () => ({ _id: projectId });
+  projectsModule.getProjectStats = async () => ({});
+  projectsModule.getAssignmentForUser = async () => null;
+  timeEntryRepository.listEntries = async (filters) => {
+    captured.push(filters);
+    return [];
+  };
+  userSummaryHelper.resolveUsersByIds = async () => new Map();
+
+  const req = {
+    v2Activity: {
+      userId: employeeId,
+      permissions: ['activity.view', 'projects.view'],
+    },
+  };
+  const query = { userId: otherUserId, weekStartDate: '2026-05-19' };
+
+  await projectActivityReportService.getProjectSummary(projectId, query, req);
+  await projectActivityReportService.getProjectWeeklyActivity(projectId, query, req);
+  await projectActivityReportService.listProjectTimeEntries(projectId, query, req);
+
+  assert.equal(captured.length, 3);
+  captured.forEach((filters) => {
+    assert.equal(filters.projectId, projectId);
+    assert.equal(filters.userId, employeeId);
+  });
+});
+
+test('view-all project report keeps explicit user filter', async () => {
+  const projectId = '507f1f77bcf86cd799439011';
+  const requestedUserId = '507f1f77bcf86cd799439013';
+  let captured = null;
+
+  projectsModule.getProjectForActivity = async () => ({ _id: projectId });
+  timeEntryRepository.listEntries = async (filters) => {
+    captured = filters;
+    return [];
+  };
+  userSummaryHelper.resolveUsersByIds = async () => new Map();
+
+  await projectActivityReportService.listProjectTimeEntries(
+    projectId,
+    { userId: requestedUserId },
+    {
+      v2Activity: {
+        userId: '507f1f77bcf86cd799439012',
+        permissions: ['activity.view', 'activity.view_all'],
+      },
+    }
+  );
+
+  assert.equal(captured.userId, requestedUserId);
 });
 
 test('notifyMissingWeek rejects submitted weeks and emits reminder for missing weeks', async () => {

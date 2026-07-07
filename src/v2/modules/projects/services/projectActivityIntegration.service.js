@@ -8,7 +8,7 @@ const projectBudgetRepository = require('../repositories/projectBudget.repositor
 const projectStatsService = require('./projectStats.service');
 const projectEventService = require('./projectEvent.service');
 
-async function getProjectForActivity(projectId) {
+async function getProjectForActivity(projectId, req = null) {
   const project = await projectRepository.findById(projectId);
   if (!project || project.isDeleted) {
     throw new AppError('Project not found', {
@@ -16,6 +16,25 @@ async function getProjectForActivity(projectId) {
       code: projectErrorCodes.PROJECT_NOT_FOUND,
     });
   }
+
+  if (req) {
+    const {
+      canViewAllProjectTimeEntries,
+      assertActivityEmployeeProfile,
+    } = require('../../activity/helpers/access.helper');
+
+    if (!canViewAllProjectTimeEntries(req)) {
+      assertActivityEmployeeProfile(req);
+      const assignment = await getAssignmentForUser(projectId, req.v2Activity.userId);
+      if (!assignment) {
+        throw new AppError('Project activity access forbidden', {
+          status: 403,
+          code: projectErrorCodes.PROJECT_ACTIVITY_FORBIDDEN,
+        });
+      }
+    }
+  }
+
   return project;
 }
 

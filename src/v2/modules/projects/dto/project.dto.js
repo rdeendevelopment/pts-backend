@@ -175,7 +175,7 @@ function toProjectStatsDto(stats) {
   const doc = stats.toObject ? stats.toObject() : stats;
 
   return {
-    id: String(doc._id),
+    id: doc._id ? String(doc._id) : null,
     projectId: String(doc.projectId),
     totalApprovedMinutes: doc.totalApprovedMinutes,
     totalApprovedAmount: doc.totalApprovedAmount,

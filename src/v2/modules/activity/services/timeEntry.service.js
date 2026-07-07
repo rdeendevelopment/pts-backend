@@ -4,9 +4,9 @@ const timeEntryRepository = require('../repositories/timeEntry.repository');
 const timeValidationService = require('./timeValidation.service');
 const timeWeekService = require('./timeWeek.service');
 const {
-  assertActivityEmployeeProfile,
   assertOwnUserOrManage,
-  canViewAllProjectTimeEntries,
+  assertOwnUserOrViewAll,
+  buildActivityUserScope,
 } = require('../helpers/access.helper');
 const { toTimeEntryDto } = require('../dto/activity.dto');
 
@@ -49,18 +49,13 @@ function applyEntryDateFilters(filters, query) {
 }
 
 async function listEntries(query, req) {
-  const filters = {};
-  if (query.time_week_id || query.timeWeekId) filters.timeWeekId = query.time_week_id || query.timeWeekId;
+  const baseFilters = {};
   const projectId = query.project_id || query.projectId || null;
-  if (projectId) filters.projectId = projectId;
-
-  if (query.user_id || query.userId) {
-    filters.userId = query.user_id || query.userId;
-    assertOwnUserOrManage(req, filters.userId);
-  } else if (!projectId || !canViewAllProjectTimeEntries(req)) {
-    assertActivityEmployeeProfile(req);
-    filters.userId = req.v2Activity.userId;
+  if (query.time_week_id || query.timeWeekId) {
+    baseFilters.timeWeekId = query.time_week_id || query.timeWeekId;
   }
+  if (projectId) baseFilters.projectId = projectId;
+  const filters = buildActivityUserScope(req, query, baseFilters);
 
   if (query.status) filters.status = query.status;
   applyEntryDateFilters(filters, query);
@@ -71,7 +66,7 @@ async function listEntries(query, req) {
 
 async function getEntryById(entryId, req) {
   const entry = await getEntryOrThrow(entryId);
-  assertOwnUserOrManage(req, entry.userId);
+  assertOwnUserOrViewAll(req, entry.userId);
   return toTimeEntryDto(entry);
 }
 

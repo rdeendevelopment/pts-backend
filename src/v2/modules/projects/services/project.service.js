@@ -35,6 +35,7 @@ const projectStatsService = require('./projectStats.service');
 const projectEventService = require('./projectEvent.service');
 const retainerRenewalService = require('./retainerRenewal.service');
 const { canManageTasks, resolveUserIdFromAuth } = require('../../tasks/helpers/taskAccessScope.helper');
+const { canViewAllProjectTimeEntries } = require('../../activity/helpers/access.helper');
 const projectPermanentDeleteService = require('./projectPermanentDelete.service');
 const { getProjectOrThrow } = require('./projectAccess.service');
 const {
@@ -469,6 +470,7 @@ async function listProjects(query = {}, req = null) {
   const summary = includeSummary
     ? await projectRepository.getPortfolioSummary(filters)
     : null;
+  const canViewAllActivity = req ? canViewAllProjectTimeEntries(req) : true;
 
   info('projects.list.completed', {
     projectCount: items.length,
@@ -483,8 +485,11 @@ async function listProjects(query = {}, req = null) {
   return {
     items: items.map((item, index) => {
       const client = clientById.get(String(item.clientId)) || null;
-      const dto = toProjectListItemDto(item, statsRows[index], client);
       const myAssignment = myAssignmentByProjectId.get(String(item._id));
+      const visibleStats = canViewAllActivity
+        ? statsRows[index]
+        : projectStatsService.buildAssignmentScopedStats(item._id, myAssignment);
+      const dto = toProjectListItemDto(item, visibleStats, client);
       if (myAssignment) {
         dto.myAssignment = toProjectAssignmentDto(myAssignment);
       }
@@ -515,15 +520,38 @@ async function listProjects(query = {}, req = null) {
 }
 
 async function getProjectById(projectId, req = null) {
-  await retainerRenewalService.ensureRetainerBudgetOnAccess(projectId);
   const project = await getProjectOrThrow(projectId);
-  const stats = await projectStatsService.getStats(project._id);
+  const canViewAllActivity = req ? canViewAllProjectTimeEntries(req) : true;
+  let assignment = null;
+  let stats;
+
+  if (canViewAllActivity) {
+    stats = await projectStatsService.getStats(project._id);
+  } else {
+    const assignedUserId = await resolveUserIdFromAuth(req.v2Auth.accountId);
+    assignment = await projectAssignmentRepository.findByProjectAndUser(
+      project._id,
+      assignedUserId,
+    );
+    if (!assignment || assignment.isDeleted || assignment.status !== 'active') {
+      throw new AppError('Project activity access forbidden', {
+        status: 403,
+        code: projectErrorCodes.PROJECT_ACTIVITY_FORBIDDEN,
+      });
+    }
+    stats = projectStatsService.buildAssignmentScopedStats(project._id, assignment);
+  }
+
+  await retainerRenewalService.ensureRetainerBudgetOnAccess(projectId);
+
   const dto = {
     ...toProjectDto(project),
     stats: require('../dto/project.dto').toProjectStatsDto(stats),
   };
 
-  if (req?.v2Auth?.accountId) {
+  if (assignment) {
+    dto.myAssignment = toProjectAssignmentDto(assignment);
+  } else if (req?.v2Auth?.accountId) {
     const assignedUserId = await resolveUserIdFromAuth(req.v2Auth.accountId);
     if (assignedUserId) {
       const assignment = await projectAssignmentRepository.findByProjectAndUser(

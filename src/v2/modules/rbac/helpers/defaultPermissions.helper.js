@@ -19,6 +19,7 @@ const DEFAULT_PERMISSIONS = [
   { key: 'budgets.view', name: 'View budgets', description: 'Read project budgets.', category: 'view' },
   { key: 'budgets.manage', name: 'Manage budgets', description: 'Create and update budgets.', category: 'manage' },
   { key: 'activity.view', name: 'View activity', description: 'Read activity and time entries.', category: 'view' },
+  { key: 'activity.view_all', name: 'View all activity', description: 'Read all users activity and time entries.', category: 'view' },
   { key: 'activity.manage', name: 'Manage activity', description: 'Create and update activity entries.', category: 'manage' },
   { key: 'clock_activity.view', name: 'View clock activity', description: 'Access live clock-in / clock-out time tracking.', category: 'view' },
   { key: 'clock_activity.manage', name: 'Manage clock activity', description: 'Manage live clock-in / clock-out time tracking.', category: 'manage' },

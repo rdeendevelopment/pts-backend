@@ -41,6 +41,7 @@ const MANAGER_PERMISSION_KEYS = [
   'budgets.view',
   'budgets.manage',
   'activity.view',
+  'activity.view_all',
   'activity.manage',
   'clock_activity.view',
   'clock_activity.manage',

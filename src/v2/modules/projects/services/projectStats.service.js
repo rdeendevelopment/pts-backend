@@ -76,6 +76,34 @@ async function createInitialStats(projectId) {
   return projectStatsRepository.createStats({ projectId });
 }
 
+function buildAssignmentScopedStats(projectId, assignment) {
+  const allocatedMinutes = Number(assignment?.allocation?.allocatedMinutes || 0);
+  const consumedMinutes = Number(assignment?.stats?.consumedMinutes || 0);
+  const remainingMinutes = Number(
+    assignment?.stats?.remainingMinutes ?? Math.max(0, allocatedMinutes - consumedMinutes)
+  );
+
+  return {
+    _id: null,
+    projectId,
+    totalApprovedMinutes: allocatedMinutes,
+    totalApprovedAmount: 0,
+    totalPendingMinutes: 0,
+    totalPendingAmount: 0,
+    totalAssignedMinutes: allocatedMinutes,
+    totalConsumedMinutes: consumedMinutes,
+    totalRemainingMinutes: remainingMinutes,
+    totalAvailableToAssignMinutes: 0,
+    totalMembers: assignment ? 1 : 0,
+    totalBudgets: 0,
+    totalFiles: 0,
+    lastActivityAt: null,
+    recalculatedAt: null,
+    createdAt: null,
+    updatedAt: null,
+  };
+}
+
 /**
  * List-safe stats resolution: one batch read from pts_project_stats, optional
  * recalculation only for projects with no cached row (e.g. newly created).
@@ -121,5 +149,6 @@ module.exports = {
   recalculateStats,
   getStats,
   createInitialStats,
+  buildAssignmentScopedStats,
   resolveStatsForList,
 };

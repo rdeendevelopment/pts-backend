@@ -14,6 +14,7 @@ const clientsModule = require('./modules/clients');
 const projectsModule = require('./modules/projects');
 const activityModule = require('./modules/activity');
 const tasksModule = require('./modules/tasks');
+const notificationsModule = require('./modules/notifications');
 const socketModule = require('./modules/socket');
 const reportsModule = require('./modules/reports');
 const converseModule = require('./modules/converse');
@@ -69,6 +70,7 @@ if (env.v2.enabled) {
   router.use('/projects', projectsModule.routes);
   router.use('/activity', activityModule.routes);
   router.use('/tasks', tasksModule.routes);
+  router.use('/notifications', notificationsModule.routes);
   router.use('/board-shares', boardSharesModule.routes);
   router.use('/socket', socketModule.routes);
   router.use('/reports', reportsModule.routes);

@@ -270,7 +270,7 @@ async function validateTimeEntry({
         approvedMinutes - consumedMinutes - draftBudgetMinutes
       );
 
-      const allowBudgetExceed = Boolean(project.allowBudgetExceed);
+      const allowBudgetExceed = Boolean(project.allowBudgetExceed || allowAssignmentExceed);
       if (!allowBudgetExceed && projectedBudgetMinutes > approvedMinutes) {
         throw new AppError('Project budget exceeded', {
           status: 409,

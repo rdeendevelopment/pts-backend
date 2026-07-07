@@ -1,8 +1,27 @@
 const { getTaskNotificationModel } = require('../models/taskNotification.model');
 
-async function listByUserId(userId, { unreadOnly = false, skip = 0, limit = 50 } = {}) {
+function buildTaskOnlyNotificationQuery(baseQuery = {}) {
+  return {
+    ...baseQuery,
+    $or: [
+      { entityType: 'task' },
+      { taskId: { $exists: true, $ne: null } },
+    ],
+  };
+}
+
+function buildNotificationQuery(baseQuery = {}, { taskOnly = false } = {}) {
+  return taskOnly ? buildTaskOnlyNotificationQuery(baseQuery) : { ...baseQuery };
+}
+
+async function listByUserId(userId, {
+  unreadOnly = false,
+  skip = 0,
+  limit = 50,
+  taskOnly = false,
+} = {}) {
   const TaskNotification = getTaskNotificationModel();
-  const query = { userId };
+  const query = buildNotificationQuery({ userId }, { taskOnly });
   if (unreadOnly) query.isRead = false;
 
   const [items, total] = await Promise.all([
@@ -17,9 +36,11 @@ async function listByUserId(userId, { unreadOnly = false, skip = 0, limit = 50 }
   return { items, total };
 }
 
-async function countUnreadByUserId(userId) {
+async function countUnreadByUserId(userId, { taskOnly = false } = {}) {
   const TaskNotification = getTaskNotificationModel();
-  return TaskNotification.countDocuments({ userId, isRead: false });
+  return TaskNotification.countDocuments(
+    buildNotificationQuery({ userId, isRead: false }, { taskOnly })
+  );
 }
 
 async function findMentionByComment(userId, taskId, commentId) {
@@ -37,19 +58,19 @@ async function createNotification(payload) {
   return TaskNotification.create(payload);
 }
 
-async function markReadById(notificationId, userId) {
+async function markReadById(notificationId, userId, { taskOnly = false } = {}) {
   const TaskNotification = getTaskNotificationModel();
   return TaskNotification.findOneAndUpdate(
-    { _id: notificationId, userId },
+    buildNotificationQuery({ _id: notificationId, userId }, { taskOnly }),
     { $set: { isRead: true, readAt: new Date() } },
     { returnDocument: 'after' }
   ).exec();
 }
 
-async function markAllReadByUserId(userId) {
+async function markAllReadByUserId(userId, { taskOnly = false } = {}) {
   const TaskNotification = getTaskNotificationModel();
   return TaskNotification.updateMany(
-    { userId, isRead: false },
+    buildNotificationQuery({ userId, isRead: false }, { taskOnly }),
     { $set: { isRead: true, readAt: new Date() } }
   );
 }
@@ -60,6 +81,7 @@ async function deleteByTaskId(taskId) {
 }
 
 module.exports = {
+  buildTaskOnlyNotificationQuery,
   listByUserId,
   countUnreadByUserId,
   findMentionByComment,
