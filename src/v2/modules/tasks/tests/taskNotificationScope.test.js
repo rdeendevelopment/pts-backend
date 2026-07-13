@@ -32,6 +32,7 @@ test('task notification list and unread count request task-only repository scope
   const originalFindUser = userRepository.findByAccountId;
   const originalList = taskNotificationRepository.listByUserId;
   const originalCount = taskNotificationRepository.countUnreadByUserId;
+  const originalMentionCount = taskNotificationRepository.countUnreadMentionsByUserId;
 
   const calls = {};
   userRepository.findByAccountId = async () => ({ _id: USER_ID });
@@ -43,6 +44,7 @@ test('task notification list and unread count request task-only repository scope
     calls.count = { userId: String(_userId), options };
     return 1;
   };
+  taskNotificationRepository.countUnreadMentionsByUserId = async () => 0;
 
   try {
     await taskNotificationService.listNotifications(req(), { limit: 10 });
@@ -51,6 +53,7 @@ test('task notification list and unread count request task-only repository scope
     userRepository.findByAccountId = originalFindUser;
     taskNotificationRepository.listByUserId = originalList;
     taskNotificationRepository.countUnreadByUserId = originalCount;
+    taskNotificationRepository.countUnreadMentionsByUserId = originalMentionCount;
   }
 
   assert.equal(calls.list.userId, USER_ID);

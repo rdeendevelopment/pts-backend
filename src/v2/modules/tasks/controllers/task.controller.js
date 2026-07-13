@@ -184,6 +184,11 @@ async function getMyTasks(req, res) {
   return sendSuccess(res, data);
 }
 
+async function getMyTasksSummary(req, res) {
+  const data = await taskAggregateService.getMyTasksSummary(req, req.query);
+  return sendSuccess(res, data);
+}
+
 async function listNotifications(req, res) {
   const data = await taskNotificationService.listNotifications(req, req.query);
   return sendSuccess(res, data);
@@ -348,6 +353,7 @@ module.exports = {
   createTask: asyncHandler(createTask),
   getInbox: asyncHandler(getInbox),
   getMyTasks: asyncHandler(getMyTasks),
+  getMyTasksSummary: asyncHandler(getMyTasksSummary),
   listNotifications: asyncHandler(listNotifications),
   getNotificationUnreadCount: asyncHandler(getNotificationUnreadCount),
   markNotificationRead: asyncHandler(markNotificationRead),

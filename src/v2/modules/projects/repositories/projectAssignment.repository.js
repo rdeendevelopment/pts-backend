@@ -77,6 +77,18 @@ async function listActiveProjectIdsByUserId(userId) {
   return [...new Set(rows.map((row) => row.projectId))];
 }
 
+async function listActiveByProjectIdsAndUserId(projectIds = [], userId) {
+  if (!projectIds.length || !userId) return [];
+
+  const ProjectAssignment = getProjectAssignmentModel();
+  return ProjectAssignment.find({
+    projectId: { $in: projectIds },
+    userId,
+    isDeleted: false,
+    status: 'active',
+  }).lean();
+}
+
 async function listActiveMemberSummariesByProjectIds(projectIds = [], { sampleSize = 4 } = {}) {
   if (!projectIds.length) return new Map();
 
@@ -149,5 +161,6 @@ module.exports = {
   softRemoveAssignment,
   countActiveMembers,
   listActiveProjectIdsByUserId,
+  listActiveByProjectIdsAndUserId,
   listActiveMemberSummariesByProjectIds,
 };

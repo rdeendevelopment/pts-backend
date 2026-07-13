@@ -88,6 +88,18 @@ async function findByIds(clientIds = [], { includeDeleted = false } = {}) {
     .lean();
 }
 
+async function findIdsBySearch(search) {
+  const Client = getClientModel();
+  const term = String(search || '').trim();
+  if (!term) return [];
+  const regex = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+  const rows = await Client.find({
+    isDeleted: false,
+    $or: [{ name: regex }, { code: regex }],
+  }).select('_id').lean();
+  return rows.map((row) => row._id);
+}
+
 async function findByNormalizedName(normalizedName, { includeDeleted = false } = {}) {
   const Client = getClientModel();
   const query = { normalizedName: String(normalizedName).trim().toLowerCase() };
@@ -137,6 +149,7 @@ module.exports = {
   listClientsPage,
   findById,
   findByIds,
+  findIdsBySearch,
   findByNormalizedName,
   findByCode,
   createClient,

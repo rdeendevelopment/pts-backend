@@ -9,7 +9,7 @@ const projectAssignmentRepository = require('../../projects/repositories/project
 const timeEntryRepository = require('../repositories/timeEntry.repository');
 const timeWeekRepository = require('../repositories/timeWeek.repository');
 const userRepository = require('../../users/repositories/user.repository');
-
+const taskRepository = require('../../tasks/repositories/task.repository');
 const userSummaryHelper = require('../helpers/userSummary.helper');
 
 const saved = {
@@ -18,9 +18,13 @@ const saved = {
   getAssignmentForUser: projectsModule.getAssignmentForUser,
   listByProjectId: projectAssignmentRepository.listByProjectId,
   listEntries: timeEntryRepository.listEntries,
+  aggregateWeekTotals: timeEntryRepository.aggregateWeekTotals,
+  sumMinutes: timeEntryRepository.sumMinutes,
   findById: timeWeekRepository.findById,
+  findWeeksByIds: timeWeekRepository.findByIds,
   findByUserAndWeekStart: timeWeekRepository.findByUserAndWeekStart,
   findUserById: userRepository.findById,
+  findTitlesByIds: taskRepository.findTitlesByIds,
   emitActivityWeekReminder: activitySocketEvents.emitActivityWeekReminder,
   resolveUsersByIds: userSummaryHelper.resolveUsersByIds,
 };
@@ -31,9 +35,13 @@ test.afterEach(() => {
   projectsModule.getAssignmentForUser = saved.getAssignmentForUser;
   projectAssignmentRepository.listByProjectId = saved.listByProjectId;
   timeEntryRepository.listEntries = saved.listEntries;
+  timeEntryRepository.aggregateWeekTotals = saved.aggregateWeekTotals;
+  timeEntryRepository.sumMinutes = saved.sumMinutes;
   timeWeekRepository.findById = saved.findById;
+  timeWeekRepository.findByIds = saved.findWeeksByIds;
   timeWeekRepository.findByUserAndWeekStart = saved.findByUserAndWeekStart;
   userRepository.findById = saved.findUserById;
+  taskRepository.findTitlesByIds = saved.findTitlesByIds;
   activitySocketEvents.emitActivityWeekReminder = saved.emitActivityWeekReminder;
   userSummaryHelper.resolveUsersByIds = saved.resolveUsersByIds;
 });
@@ -56,32 +64,20 @@ test('getProjectSummary groups entries by week and returns stats', async () => {
     stats: { consumedMinutes: 120, remainingMinutes: 360 },
   });
   projectAssignmentRepository.listByProjectId = async () => [];
-  timeEntryRepository.listEntries = async () => ([
+  timeEntryRepository.aggregateWeekTotals = async () => ([
     {
-      _id: 'e1',
       timeWeekId: weekId,
-      projectId,
-      userId,
-      minutes: 60,
-      status: 'draft',
-      entryDate: new Date('2026-05-19T12:00:00.000Z'),
-    },
-    {
-      _id: 'e2',
-      timeWeekId: weekId,
-      projectId,
-      userId,
-      minutes: 30,
-      status: 'submitted',
-      entryDate: new Date('2026-05-20T12:00:00.000Z'),
+      totalMinutes: 90,
+      statusTotals: { draft: 60, submitted: 30, approved: 0, rejected: 0 },
     },
   ]);
-  timeWeekRepository.findById = async () => ({
+  timeEntryRepository.sumMinutes = async () => ({ totalMinutes: 0, totalEntries: 0 });
+  timeWeekRepository.findByIds = async () => [{
     _id: weekId,
     weekStartDate: new Date('2026-05-19T00:00:00.000Z'),
     weekEndDate: new Date('2026-05-25T23:59:59.999Z'),
     status: 'submitted',
-  });
+  }];
   userRepository.findById = async () => ({
     _id: userId,
     firstName: 'Pat',
@@ -97,16 +93,78 @@ test('getProjectSummary groups entries by week and returns stats', async () => {
   assert.equal(result.approvedMinutes, 480);
   assert.equal(result.assignedMinutes, 480);
   assert.equal(result.consumedMinutes, 120);
+  assert.equal(result.loggedMinutes, 120);
+  assert.equal(result.allocatedMinutes, 480);
   assert.equal(result.weeks.length, 1);
   assert.equal(result.weeks[0].totalMinutes, 90);
   assert.equal(result.weeks[0].status, 'submitted');
   assert.equal(result.statusTotals.draft, 60);
   assert.equal(result.statusTotals.submitted, 30);
+  assert.equal(result.hasMoreWeeks, false);
 });
 
-test('getProjectWeeklyActivity returns seven grouped days', async () => {
+test('getProjectSummary respects weekLimit preview', async () => {
   const projectId = '507f1f77bcf86cd799439011';
   const userId = '507f1f77bcf86cd799439012';
+
+  projectsModule.getProjectForActivity = async () => ({ _id: projectId });
+  projectsModule.getProjectStats = async () => ({});
+  projectsModule.getAssignmentForUser = async () => null;
+  timeEntryRepository.aggregateWeekTotals = async () => ([
+    {
+      timeWeekId: 'w1',
+      totalMinutes: 60,
+      statusTotals: { draft: 60, submitted: 0, approved: 0, rejected: 0 },
+    },
+    {
+      timeWeekId: 'w2',
+      totalMinutes: 30,
+      statusTotals: { draft: 0, submitted: 30, approved: 0, rejected: 0 },
+    },
+    {
+      timeWeekId: 'w3',
+      totalMinutes: 15,
+      statusTotals: { draft: 15, submitted: 0, approved: 0, rejected: 0 },
+    },
+  ]);
+  timeEntryRepository.sumMinutes = async () => ({ totalMinutes: 0, totalEntries: 0 });
+  timeWeekRepository.findByIds = async () => ([
+    {
+      _id: 'w1',
+      weekStartDate: new Date('2026-05-19T00:00:00.000Z'),
+      weekEndDate: new Date('2026-05-25T23:59:59.999Z'),
+      status: 'draft',
+    },
+    {
+      _id: 'w2',
+      weekStartDate: new Date('2026-05-12T00:00:00.000Z'),
+      weekEndDate: new Date('2026-05-18T23:59:59.999Z'),
+      status: 'submitted',
+    },
+    {
+      _id: 'w3',
+      weekStartDate: new Date('2026-05-05T00:00:00.000Z'),
+      weekEndDate: new Date('2026-05-11T23:59:59.999Z'),
+      status: 'draft',
+    },
+  ]);
+
+  const result = await projectActivityReportService.getProjectSummary(
+    projectId,
+    { weekLimit: 2 },
+    { v2Activity: { userId, permissions: [] } },
+  );
+
+  assert.equal(result.totalMinutes, 105);
+  assert.equal(result.weeksTotal, 3);
+  assert.equal(result.weeks.length, 2);
+  assert.equal(result.hasMoreWeeks, true);
+});
+
+test('getProjectWeeklyActivity returns seven grouped days with task names', async () => {
+  const projectId = '507f1f77bcf86cd799439011';
+  const userId = '507f1f77bcf86cd799439012';
+  const taskId = '507f1f77bcf86cd799439099';
 
   projectsModule.getProjectForActivity = async () => ({ _id: projectId });
   userSummaryHelper.resolveUsersByIds = async (ids = []) => {
@@ -121,14 +179,30 @@ test('getProjectWeeklyActivity returns seven grouped days', async () => {
     });
     return map;
   };
+  taskRepository.findTitlesByIds = async () => ([
+    { _id: taskId, title: 'Working on Tenant Admin Panel', isDeleted: false },
+  ]);
   timeEntryRepository.listEntries = async () => ([
     {
       _id: 'e1',
       projectId,
       userId,
+      taskId,
       minutes: 45,
       status: 'draft',
       entryDate: new Date('2026-05-19T12:00:00.000Z'),
+      assignmentId: 'a1',
+      workCategoryId: 'c1',
+      timeWeekId: 'w1',
+    },
+    {
+      _id: 'e2',
+      projectId,
+      userId,
+      taskId: null,
+      minutes: 15,
+      status: 'draft',
+      entryDate: new Date('2026-05-20T12:00:00.000Z'),
       assignmentId: 'a1',
       workCategoryId: 'c1',
       timeWeekId: 'w1',
@@ -142,9 +216,11 @@ test('getProjectWeeklyActivity returns seven grouped days', async () => {
   );
 
   assert.equal(result.days.length, 7);
-  assert.equal(result.totalMinutes, 45);
-  assert.equal(result.entries.length, 1);
+  assert.equal(result.totalMinutes, 60);
+  assert.equal(result.entries.length, 2);
   assert.equal(result.users.length, 1);
+  assert.equal(result.entries[0].taskName, 'Working on Tenant Admin Panel');
+  assert.equal(result.entries[1].taskName, 'General Activity');
 });
 
 test('employee project report endpoints always query only own entries', async () => {
@@ -156,11 +232,17 @@ test('employee project report endpoints always query only own entries', async ()
   projectsModule.getProjectForActivity = async () => ({ _id: projectId });
   projectsModule.getProjectStats = async () => ({});
   projectsModule.getAssignmentForUser = async () => null;
+  timeEntryRepository.aggregateWeekTotals = async (filters) => {
+    captured.push(filters);
+    return [];
+  };
+  timeEntryRepository.sumMinutes = async () => ({ totalMinutes: 0, totalEntries: 0 });
   timeEntryRepository.listEntries = async (filters) => {
     captured.push(filters);
     return [];
   };
   userSummaryHelper.resolveUsersByIds = async () => new Map();
+  taskRepository.findTitlesByIds = async () => [];
 
   const req = {
     v2Activity: {
@@ -192,6 +274,7 @@ test('view-all project report keeps explicit user filter', async () => {
     return [];
   };
   userSummaryHelper.resolveUsersByIds = async () => new Map();
+  taskRepository.findTitlesByIds = async () => [];
 
   await projectActivityReportService.listProjectTimeEntries(
     projectId,

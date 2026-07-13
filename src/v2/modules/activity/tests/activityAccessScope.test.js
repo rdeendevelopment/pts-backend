@@ -31,11 +31,13 @@ const viewAllReq = {
 
 const saved = {
   listWeeks: timeWeekRepository.listWeeks,
+  summarizeWeeks: timeWeekRepository.summarizeWeeks,
   listEntries: timeEntryRepository.listEntries,
 };
 
 test.afterEach(() => {
   timeWeekRepository.listWeeks = saved.listWeeks;
+  timeWeekRepository.summarizeWeeks = saved.summarizeWeeks;
   timeEntryRepository.listEntries = saved.listEntries;
 });
 
@@ -72,6 +74,14 @@ test('employee week listing always reaches repository with own userId', async ()
     captured = filters;
     return [];
   };
+  timeWeekRepository.summarizeWeeks = async () => ({
+    weekCount: 0,
+    totalMinutes: 0,
+    draftCount: 0,
+    submittedCount: 0,
+    approvedCount: 0,
+    rejectedCount: 0,
+  });
 
   await timeWeekService.listWeeks({ userId: OTHER_USER_ID }, employeeReq);
   assert.equal(captured.userId, EMPLOYEE_ID);

@@ -24,6 +24,7 @@ function buildListQuery(filters = {}) {
         { name: regex },
         { code: regex },
         { description: regex },
+        ...(filters.searchClientIds?.length ? [{ clientId: { $in: filters.searchClientIds } }] : []),
       ];
     }
   }
@@ -104,12 +105,15 @@ async function getPortfolioSummary(filters = {}) {
     statusIn: undefined,
   });
   const now = new Date();
+  const dueSoonDate = new Date(now);
+  dueSoonDate.setDate(dueSoonDate.getDate() + 14);
 
   const [
     total,
     active,
     completed,
     atRisk,
+    dueSoon,
   ] = await Promise.all([
     Project.countDocuments(base),
     Project.countDocuments({ ...base, status: 'active' }),
@@ -119,9 +123,14 @@ async function getPortfolioSummary(filters = {}) {
       status: { $in: ['draft', 'active', 'on_hold'] },
       dueDate: { $lt: now, $ne: null },
     }),
+    Project.countDocuments({
+      ...base,
+      status: { $in: ['draft', 'active', 'on_hold'] },
+      dueDate: { $lte: dueSoonDate, $ne: null },
+    }),
   ]);
 
-  return { total, active, completed, atRisk, consumedMinutes: 0 };
+  return { total, active, completed, atRisk, dueSoon, consumedMinutes: 0 };
 }
 
 async function findById(projectId, { includeDeleted = false } = {}) {
@@ -198,12 +207,21 @@ async function listRetainerProjectsForAutoRenewal() {
   }).exec();
 }
 
+async function findTitlesByIds(projectIds = []) {
+  if (!projectIds.length) return [];
+  const Project = getProjectModel();
+  return Project.find({ _id: { $in: projectIds } })
+    .select('_id name isDeleted')
+    .lean();
+}
+
 module.exports = {
   listProjects,
   listProjectsPage,
   getPortfolioSummary,
   resolveListSort,
   findById,
+  findTitlesByIds,
   findByClientAndNormalizedName,
   findByCode,
   countActiveByClientId,

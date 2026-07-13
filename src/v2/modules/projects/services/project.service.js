@@ -36,6 +36,7 @@ const projectEventService = require('./projectEvent.service');
 const retainerRenewalService = require('./retainerRenewal.service');
 const { canManageTasks, resolveUserIdFromAuth } = require('../../tasks/helpers/taskAccessScope.helper');
 const { canViewAllProjectTimeEntries } = require('../../activity/helpers/access.helper');
+const timeEntryRepository = require('../../activity/repositories/timeEntry.repository');
 const projectPermanentDeleteService = require('./projectPermanentDelete.service');
 const { getProjectOrThrow } = require('./projectAccess.service');
 const {
@@ -415,12 +416,18 @@ async function listProjects(query = {}, req = null) {
     includeDeleted,
     projectIds,
   };
+  if (filters.search) {
+    filters.searchClientIds = await clientRepository.findIdsBySearch(filters.search);
+  }
 
   const sortBy = query.sort_by || query.sortBy || null;
   const sortOrder = query.sort_order || query.sortOrder || null;
   const sort = projectRepository.resolveListSort(sortBy, sortOrder);
   const includeSummary = ['true', '1'].includes(
     String(query.include_summary || query.includeSummary || '').toLowerCase()
+  );
+  const includeTeamSummary = !['false', '0'].includes(
+    String(query.include_team_summary ?? query.includeTeamSummary ?? 'true').toLowerCase()
   );
 
   const listResult = useCursor
@@ -437,39 +444,45 @@ async function listProjects(query = {}, req = null) {
   const hasMore = useCursor ? listResult.hasMore : listResult.total > page * limit;
 
   const listProjectIds = items.map((item) => item._id);
+  const clientIds = [...new Set(items.map((item) => item.clientId).filter(Boolean))];
+  const [
+    statsResult,
+    clientRows,
+    assignmentRows,
+    teamSummaryByProjectId,
+    summary,
+    summaryConsumedMinutes,
+  ] = await Promise.all([
+    projectStatsService.resolveStatsForList(listProjectIds),
+    clientIds.length ? clientRepository.findByIds(clientIds) : [],
+    assignedUserId
+      ? projectAssignmentRepository.listActiveByProjectIdsAndUserId(listProjectIds, assignedUserId)
+      : [],
+    includeTeamSummary
+      ? projectAssignmentRepository.listActiveMemberSummariesByProjectIds(listProjectIds, { sampleSize: 4 })
+      : null,
+    includeSummary ? projectRepository.getPortfolioSummary(filters) : null,
+    includeSummary && assignedUserId && projectIds?.length
+      ? timeEntryRepository.sumActiveMinutesForUserAndProjects(assignedUserId, projectIds)
+      : 0,
+  ]);
   const {
     statsByProjectId,
     cachedFound,
     missingCount,
     fallbackRecalculated,
-  } = await projectStatsService.resolveStatsForList(listProjectIds);
+  } = statsResult;
   const statsRows = items.map((item) => statsByProjectId.get(String(item._id)) || null);
-
-  const clientIds = [...new Set(items.map((item) => item.clientId).filter(Boolean))];
-  const clientRows = clientIds.length
-    ? await clientRepository.findByIds(clientIds)
-    : [];
   const clientById = new Map(clientRows.map((client) => [String(client._id), client]));
 
-  const myAssignmentByProjectId = new Map();
-  if (assignedUserId) {
-    const assignmentRows = await Promise.all(
-      items.map((item) => projectAssignmentRepository.findByProjectAndUser(item._id, assignedUserId))
-    );
-    items.forEach((item, index) => {
-      const assignment = assignmentRows[index];
-      if (assignment && !assignment.isDeleted && assignment.status === 'active') {
-        myAssignmentByProjectId.set(String(item._id), assignment);
-      }
-    });
-  }
+  const myAssignmentByProjectId = new Map(
+    assignmentRows.map((assignment) => [String(assignment.projectId), assignment])
+  );
 
-  const teamSummaryByProjectId = await projectAssignmentRepository
-    .listActiveMemberSummariesByProjectIds(listProjectIds, { sampleSize: 4 });
+  const myUsedMinutesByAssignmentId = await timeEntryRepository.sumActiveMinutesByAssignmentIds(
+    [...myAssignmentByProjectId.values()].map((assignment) => assignment._id)
+  );
 
-  const summary = includeSummary
-    ? await projectRepository.getPortfolioSummary(filters)
-    : null;
   const canViewAllActivity = req ? canViewAllProjectTimeEntries(req) : true;
 
   info('projects.list.completed', {
@@ -492,12 +505,21 @@ async function listProjects(query = {}, req = null) {
       const dto = toProjectListItemDto(item, visibleStats, client);
       if (myAssignment) {
         dto.myAssignment = toProjectAssignmentDto(myAssignment);
+        const usedMinutes = myUsedMinutesByAssignmentId.get(String(myAssignment._id)) || 0;
+        const allocatedMinutes = Number(myAssignment.allocation?.allocatedMinutes || 0);
+        dto.myAssignment.stats = {
+          ...dto.myAssignment.stats,
+          consumedMinutes: usedMinutes,
+          remainingMinutes: Math.max(0, allocatedMinutes - usedMinutes),
+        };
       }
-      const teamSummary = teamSummaryByProjectId.get(String(item._id));
-      if (teamSummary) {
-        dto.teamSummary = teamSummary;
-      } else {
-        dto.teamSummary = { totalMembers: statsRows[index]?.totalMembers || 0, members: [] };
+      if (includeTeamSummary) {
+        const teamSummary = teamSummaryByProjectId.get(String(item._id));
+        if (teamSummary) {
+          dto.teamSummary = teamSummary;
+        } else {
+          dto.teamSummary = { totalMembers: statsRows[index]?.totalMembers || 0, members: [] };
+        }
       }
       return dto;
     }),
@@ -515,7 +537,7 @@ async function listProjects(query = {}, req = null) {
       hasMore,
       next_cursor: nextCursor ? encodeCursor(nextCursor) : null,
     },
-    ...(summary ? { summary } : {}),
+    ...(summary ? { summary: { ...summary, consumedMinutes: summaryConsumedMinutes } } : {}),
   };
 }
 

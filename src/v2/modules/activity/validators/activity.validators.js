@@ -8,7 +8,7 @@ const {
 const weekListRules = [
   query('user_id').optional().isString(),
   query('userId').optional().isString(),
-  query('status').optional().isIn(WEEK_STATUSES),
+  query('status').optional().isIn([...WEEK_STATUSES, 'all']),
   query('week_start').optional().isISO8601(),
   query('weekStartDate').optional().isISO8601(),
   query('startDate').optional().isISO8601(),
@@ -17,6 +17,9 @@ const weekListRules = [
   query('end_date').optional().isISO8601(),
   query('weekStartDateFrom').optional().isISO8601(),
   query('weekStartDateTo').optional().isISO8601(),
+  query('page').optional().isInt({ min: 1 }),
+  query('limit').optional().isInt({ min: 1, max: 50 }),
+  query('search').optional().isString(),
 ];
 
 const workforceSummaryRules = [
@@ -105,6 +108,8 @@ const projectSummaryRules = [
   query('start_date').optional().isISO8601(),
   query('endDate').optional().isISO8601(),
   query('end_date').optional().isISO8601(),
+  query('weekLimit').optional().isInt({ min: 1, max: 52 }),
+  query('week_limit').optional().isInt({ min: 1, max: 52 }),
 ];
 
 const projectWeeklyRules = [
@@ -129,6 +134,7 @@ const projectTimeEntriesRules = [
   query('entryDateFrom').optional().isISO8601(),
   query('entryDateTo').optional().isISO8601(),
   query('status').optional().isIn(ENTRY_STATUSES),
+  query('limit').optional().isInt({ min: 1, max: 200 }),
 ];
 
 const notifyMissingWeekRules = [

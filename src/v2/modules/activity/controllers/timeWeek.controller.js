@@ -5,7 +5,11 @@ const timeWeekService = require('../services/timeWeek.service');
 
 async function listWeeks(req, res) {
   const data = await timeWeekService.listWeeks(req.query, req);
-  return sendSuccess(res, { items: data });
+  // Keep plain-array shape for legacy callers that omit page/limit.
+  if (req.query.page == null && req.query.limit == null) {
+    return sendSuccess(res, { items: data.items });
+  }
+  return sendSuccess(res, data);
 }
 
 async function getWeekById(req, res) {

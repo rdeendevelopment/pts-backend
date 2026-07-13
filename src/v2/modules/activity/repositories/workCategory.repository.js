@@ -44,9 +44,18 @@ async function seedDefaultCategories() {
   return results;
 }
 
+async function findNamesByIds(categoryIds = []) {
+  if (!categoryIds.length) return [];
+  const WorkCategory = getWorkCategoryModel();
+  return WorkCategory.find({ _id: { $in: categoryIds } })
+    .select('_id name')
+    .lean();
+}
+
 module.exports = {
   listCategories,
   findById,
   findByCode,
+  findNamesByIds,
   seedDefaultCategories,
 };

@@ -194,4 +194,5 @@ test('stopTimer emits activity.timer.stopped through helper', async () => {
   assert.equal(socketCalls.timerStopped[0].userId, USER_ID);
   assert.equal(socketCalls.timerStopped[0].timer.projectId, PROJECT_ID);
   assert.equal(socketCalls.timerStopped[0].timer.status, 'stopped');
+  assert.equal(findByIdCalls, 1, 'stop should reuse the updated timer instead of reading it again');
 });

@@ -78,18 +78,40 @@ async function listWeeks(query, req) {
   if (query.status && query.status !== 'all') filters.status = query.status;
   applyWeekListDateFilters(filters, query);
 
-  const weeks = await timeWeekRepository.listWeeks(filters);
-  const dtos = weeks.map(toTimeWeekDto);
+  const page = Math.max(1, Number.parseInt(String(query.page || '1'), 10) || 1);
+  const rawLimit = query.limit != null && query.limit !== ''
+    ? Number.parseInt(String(query.limit), 10)
+    : null;
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0
+    ? Math.min(rawLimit, 50)
+    : null;
 
-  if (!canViewAllProjectTimeEntries(req)) {
-    return dtos;
+  const [paged, summary] = await Promise.all([
+    timeWeekRepository.listWeeks(filters, limit ? { page, limit, lean: true } : { lean: true }),
+    timeWeekRepository.summarizeWeeks(filters),
+  ]);
+
+  const weeks = Array.isArray(paged) ? paged : (paged.items || []);
+  const total = Array.isArray(paged) ? weeks.length : Number(paged.total || 0);
+  let dtos = weeks.map(toTimeWeekDto);
+
+  if (canViewAllProjectTimeEntries(req)) {
+    const userMap = await userSummaryHelper.resolveUsersByIds(weeks.map((week) => week.userId));
+    dtos = dtos.map((dto) => ({
+      ...dto,
+      user: userMap.get(String(dto.userId)) || null,
+    }));
   }
 
-  const userMap = await userSummaryHelper.resolveUsersByIds(weeks.map((week) => week.userId));
-  return dtos.map((dto) => ({
-    ...dto,
-    user: userMap.get(String(dto.userId)) || null,
-  }));
+  // Backward compatible: unpaginated callers still get a plain array via controller.
+  return {
+    items: dtos,
+    total: limit ? total : dtos.length,
+    page: limit ? page : 1,
+    limit: limit || dtos.length || 0,
+    hasMore: limit ? (page * limit) < total : false,
+    summary,
+  };
 }
 
 async function attachWeekUserSummary(weekDto, weekDoc) {
@@ -104,7 +126,73 @@ async function getWeekById(weekId, req) {
   const week = await getWeekOrThrow(weekId);
   assertOwnUserOrViewAll(req, week.userId);
 
-  const entries = await timeEntryRepository.listEntries({ timeWeekId: week._id });
+  const entries = await timeEntryRepository.listEntries(
+    { timeWeekId: week._id },
+    {
+      lean: true,
+      select: [
+        '_id',
+        'timeWeekId',
+        'projectId',
+        'assignmentId',
+        'userId',
+        'taskId',
+        'budgetId',
+        'workCategoryId',
+        'entryDate',
+        'minutes',
+        'description',
+        'title',
+        'status',
+        'source',
+        'billable',
+        'startTime',
+        'endTime',
+        'createdAt',
+        'updatedAt',
+      ].join(' '),
+    },
+  );
+
+  const taskIds = [...new Set(entries.map((entry) => entry.taskId).filter(Boolean))];
+  const projectIds = [...new Set(entries.map((entry) => entry.projectId).filter(Boolean))];
+  const categoryIds = [...new Set(entries.map((entry) => entry.workCategoryId).filter(Boolean))];
+
+  const taskRepository = require('../../tasks/repositories/task.repository');
+  const projectRepository = require('../../projects/repositories/project.repository');
+  const workCategoryRepository = require('../repositories/workCategory.repository');
+
+  const [tasks, projects, categories] = await Promise.all([
+    taskRepository.findTitlesByIds(taskIds),
+    projectRepository.findTitlesByIds(projectIds),
+    workCategoryRepository.findNamesByIds(categoryIds),
+  ]);
+
+  const taskNameById = new Map(tasks.map((task) => [
+    String(task._id),
+    task.isDeleted ? 'Deleted Task' : (task.title || 'Deleted Task'),
+  ]));
+  const projectNameById = new Map(projects.map((project) => [
+    String(project._id),
+    project.isDeleted ? 'Deleted Project' : (project.name || 'Untitled project'),
+  ]));
+  const categoryNameById = new Map(categories.map((category) => [
+    String(category._id),
+    category.name || 'Activity',
+  ]));
+
+  for (const entry of entries) {
+    entry.taskName = entry.taskId
+      ? (taskNameById.get(String(entry.taskId)) || 'Deleted Task')
+      : 'General Activity';
+    entry.projectName = entry.projectId
+      ? (projectNameById.get(String(entry.projectId)) || 'Untitled project')
+      : 'General work';
+    entry.workCategoryName = entry.workCategoryId
+      ? (categoryNameById.get(String(entry.workCategoryId)) || 'Activity')
+      : 'Activity';
+  }
+
   const report = buildWeeklyReport(entries, {
     weekStartDate: week.weekStartDate,
     timezone: week.timezone,

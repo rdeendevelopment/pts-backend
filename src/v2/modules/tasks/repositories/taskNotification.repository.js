@@ -43,6 +43,15 @@ async function countUnreadByUserId(userId, { taskOnly = false } = {}) {
   );
 }
 
+async function countUnreadMentionsByUserId(userId) {
+  const TaskNotification = getTaskNotificationModel();
+  return TaskNotification.countDocuments(buildNotificationQuery({
+    userId,
+    isRead: false,
+    type: 'task_mentioned',
+  }, { taskOnly: true }));
+}
+
 async function findMentionByComment(userId, taskId, commentId) {
   const TaskNotification = getTaskNotificationModel();
   return TaskNotification.findOne({
@@ -84,6 +93,7 @@ module.exports = {
   buildTaskOnlyNotificationQuery,
   listByUserId,
   countUnreadByUserId,
+  countUnreadMentionsByUserId,
   findMentionByComment,
   createNotification,
   markReadById,

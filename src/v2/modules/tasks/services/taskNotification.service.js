@@ -84,8 +84,11 @@ async function getUnreadCount(req) {
   const userId = await resolveNotificationUserId(req, findUserIdFromAuth);
   if (!userId) return { count: 0 };
 
-  const count = await taskNotificationRepository.countUnreadByUserId(userId, { taskOnly: true });
-  return { count };
+  const [count, mentionsCount] = await Promise.all([
+    taskNotificationRepository.countUnreadByUserId(userId, { taskOnly: true }),
+    taskNotificationRepository.countUnreadMentionsByUserId(userId),
+  ]);
+  return { count, mentionsCount };
 }
 
 async function markNotificationRead(notificationId, req, { taskOnly = true } = {}) {

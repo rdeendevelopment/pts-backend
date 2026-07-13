@@ -8,6 +8,14 @@ async function findById(taskId, { projectId = null, includeDeleted = false } = {
   return Task.findOne(query).exec();
 }
 
+async function findTitlesByIds(taskIds = []) {
+  if (!taskIds.length) return [];
+  const Task = getTaskModel();
+  return Task.find({ _id: { $in: taskIds } })
+    .select('_id title isDeleted')
+    .lean();
+}
+
 function buildProjectTaskQuery(projectId, filters = {}) {
   const query = { projectId, isDeleted: false };
   if (filters.status) query.status = filters.status;
@@ -194,6 +202,59 @@ async function listAggregate(filters = {}, { sort = { updatedAt: -1 }, skip = 0,
   return { items, total };
 }
 
+async function summarizeAggregate(filters = {}) {
+  const Task = getTaskModel();
+  const query = buildAggregateQuery(filters);
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+  const rows = await Task.aggregate([
+    { $match: query },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: 1 },
+        open: { $sum: { $cond: [{ $not: [{ $in: ['$status', ['completed', 'archived']] }] }, 1, 0] } },
+        completed: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+        overdue: {
+          $sum: {
+            $cond: [{
+              $and: [
+                { $not: [{ $in: ['$status', ['completed', 'archived']] }] },
+                { $ne: ['$dueDate', null] },
+                { $lt: ['$dueDate', todayStart] },
+              ],
+            }, 1, 0],
+          },
+        },
+        highPriority: {
+          $sum: {
+            $cond: [{
+              $and: [
+                { $eq: ['$priority', 'high'] },
+                { $not: [{ $in: ['$status', ['completed', 'archived']] }] },
+              ],
+            }, 1, 0],
+          },
+        },
+        dueToday: {
+          $sum: {
+            $cond: [{
+              $and: [
+                { $not: [{ $in: ['$status', ['completed', 'archived']] }] },
+                { $gte: ['$dueDate', todayStart] },
+                { $lt: ['$dueDate', tomorrowStart] },
+              ],
+            }, 1, 0],
+          },
+        },
+      },
+    },
+  ]);
+  return rows[0] || { total: 0, open: 0, completed: 0, overdue: 0, highPriority: 0, dueToday: 0 };
+}
+
 async function hardDeleteById(taskId) {
   const Task = getTaskModel();
   return Task.findByIdAndDelete(taskId).exec();
@@ -201,6 +262,7 @@ async function hardDeleteById(taskId) {
 
 module.exports = {
   findById,
+  findTitlesByIds,
   listByProject,
   listByProjectPage,
   createTask,
@@ -215,5 +277,6 @@ module.exports = {
   moveTasksBetweenStatuses,
   buildAggregateQuery,
   listAggregate,
+  summarizeAggregate,
   hardDeleteById,
 };

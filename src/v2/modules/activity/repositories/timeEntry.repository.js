@@ -1,15 +1,26 @@
 const { getTimeEntryModel } = require('../models/timeEntry.model');
+const mongoose = require('mongoose');
+
+function castObjectId(value) {
+  if (value == null || value === '') return value;
+  if (value instanceof mongoose.Types.ObjectId) return value;
+  const asString = String(value);
+  if (mongoose.isValidObjectId(asString)) {
+    return new mongoose.Types.ObjectId(asString);
+  }
+  return value;
+}
 
 function buildEntryQuery(filters = {}) {
   const query = { isDeleted: false };
-  if (filters.timeWeekId) query.timeWeekId = filters.timeWeekId;
-  if (filters.projectId) query.projectId = filters.projectId;
-  if (filters.assignmentId) query.assignmentId = filters.assignmentId;
-  if (filters.userId) query.userId = filters.userId;
-  if (filters.budgetId) query.budgetId = filters.budgetId;
+  if (filters.timeWeekId) query.timeWeekId = castObjectId(filters.timeWeekId);
+  if (filters.projectId) query.projectId = castObjectId(filters.projectId);
+  if (filters.assignmentId) query.assignmentId = castObjectId(filters.assignmentId);
+  if (filters.userId) query.userId = castObjectId(filters.userId);
+  if (filters.budgetId) query.budgetId = castObjectId(filters.budgetId);
   if (filters.status) query.status = filters.status;
   if (filters.statuses) query.status = { $in: filters.statuses };
-  if (filters.excludeEntryId) query._id = { $ne: filters.excludeEntryId };
+  if (filters.excludeEntryId) query._id = { $ne: castObjectId(filters.excludeEntryId) };
   if (filters.entryDateFrom || filters.entryDateTo) {
     query.entryDate = {};
     if (filters.entryDateFrom) query.entryDate.$gte = filters.entryDateFrom;
@@ -25,9 +36,46 @@ async function findById(entryId, { includeDeleted = false } = {}) {
   return TimeEntry.findOne(query).exec();
 }
 
-async function listEntries(filters = {}) {
+async function listEntries(filters = {}, options = {}) {
   const TimeEntry = getTimeEntryModel();
-  return TimeEntry.find(buildEntryQuery(filters)).sort({ entryDate: 1, createdAt: 1 }).exec();
+  const sort = options.sort || { entryDate: 1, createdAt: 1 };
+  let query = TimeEntry.find(buildEntryQuery(filters)).sort(sort);
+
+  if (options.select) query = query.select(options.select);
+  if (options.lean) query = query.lean();
+  if (options.limit) query = query.limit(Number(options.limit));
+  if (options.skip) query = query.skip(Number(options.skip));
+
+  return query.exec();
+}
+
+/** Aggregate minutes by week for project summary — avoids loading full entry documents. */
+async function aggregateWeekTotals(filters = {}) {
+  const TimeEntry = getTimeEntryModel();
+  const rows = await TimeEntry.aggregate([
+    { $match: buildEntryQuery(filters) },
+    {
+      $group: {
+        _id: '$timeWeekId',
+        totalMinutes: { $sum: '$minutes' },
+        draft: { $sum: { $cond: [{ $eq: ['$status', 'draft'] }, '$minutes', 0] } },
+        submitted: { $sum: { $cond: [{ $eq: ['$status', 'submitted'] }, '$minutes', 0] } },
+        approved: { $sum: { $cond: [{ $eq: ['$status', 'approved'] }, '$minutes', 0] } },
+        rejected: { $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, '$minutes', 0] } },
+      },
+    },
+  ]);
+
+  return rows.map((row) => ({
+    timeWeekId: row._id,
+    totalMinutes: Number(row.totalMinutes || 0),
+    statusTotals: {
+      draft: Number(row.draft || 0),
+      submitted: Number(row.submitted || 0),
+      approved: Number(row.approved || 0),
+      rejected: Number(row.rejected || 0),
+    },
+  }));
 }
 
 async function createEntry(payload, session = null) {
@@ -102,6 +150,47 @@ async function sumMinutesByWeek(weekId, { statuses = null, session = null } = {}
   return sumMinutes({ timeWeekId: weekId, statuses }, session);
 }
 
+async function sumActiveMinutesByAssignmentIds(assignmentIds = []) {
+  if (!assignmentIds.length) return new Map();
+
+  const TimeEntry = getTimeEntryModel();
+  const rows = await TimeEntry.aggregate([
+    {
+      $match: {
+        assignmentId: { $in: assignmentIds.map((id) => castObjectId(id)) },
+        isDeleted: false,
+        status: { $in: ['draft', 'submitted', 'approved'] },
+      },
+    },
+    {
+      $group: {
+        _id: '$assignmentId',
+        totalMinutes: { $sum: '$minutes' },
+      },
+    },
+  ]);
+
+  return new Map(rows.map((row) => [String(row._id), Number(row.totalMinutes || 0)]));
+}
+
+async function sumActiveMinutesForUserAndProjects(userId, projectIds = []) {
+  if (!userId || !projectIds.length) return 0;
+
+  const TimeEntry = getTimeEntryModel();
+  const rows = await TimeEntry.aggregate([
+    {
+      $match: {
+        userId: castObjectId(userId),
+        projectId: { $in: projectIds.map((id) => castObjectId(id)) },
+        isDeleted: false,
+        status: { $in: ['draft', 'submitted', 'approved'] },
+      },
+    },
+    { $group: { _id: null, totalMinutes: { $sum: '$minutes' } } },
+  ]);
+  return Number(rows[0]?.totalMinutes || 0);
+}
+
 async function sumMinutesForCap({
   assignmentId,
   userId,
@@ -135,12 +224,15 @@ module.exports = {
   buildEntryQuery,
   findById,
   listEntries,
+  aggregateWeekTotals,
   createEntry,
   updateEntry,
   updateManyByWeek,
   softDeleteEntry,
   sumMinutes,
   sumMinutesByWeek,
+  sumActiveMinutesByAssignmentIds,
+  sumActiveMinutesForUserAndProjects,
   sumMinutesForCap,
   countActiveEntriesForProject,
 };

@@ -304,14 +304,14 @@ async function stopTimer(timerId, accountId, req) {
     source: 'timer',
   }, accountId, req);
 
-  await activeTimerRepository.updateTimer(
+  const stoppedTimerDoc = await activeTimerRepository.updateTimer(
     timer._id,
     { status: 'stopped', stoppedAt, description, updatedBy: accountId },
     null,
     { expectedStatus },
   );
 
-  const stoppedTimer = toActiveTimerDto(await activeTimerRepository.findById(timer._id));
+  const stoppedTimer = toActiveTimerDto(stoppedTimerDoc);
   activitySocketEvents.emitActivityTimerStopped(req.v2Activity.userId, stoppedTimer);
 
   return { timer: stoppedTimer, entry };

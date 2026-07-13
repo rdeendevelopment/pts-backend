@@ -163,9 +163,35 @@ async function getMyTasks(req, query = {}) {
   });
 }
 
+async function getMyTasksSummary(req, query = {}) {
+  const filters = parseAggregateFilters(query);
+  if (!filters.status) filters.statusNe = 'archived';
+
+  if (!canManageTasks(req)) {
+    const userId = await resolveUserIdFromAuth(req.v2Auth.accountId);
+    const [accessibleProjectIds, collaboratorTaskIds] = await Promise.all([
+      projectAssignmentRepository.listActiveProjectIdsByUserId(userId),
+      taskCollaboratorRepository.listActiveTaskIdsByUserId(userId),
+    ]);
+    const relevanceOr = buildMyTasksScopeConditions(
+      userId,
+      accessibleProjectIds,
+      [],
+      collaboratorTaskIds
+    );
+    if (!relevanceOr.length) {
+      return { total: 0, open: 0, completed: 0, overdue: 0, highPriority: 0, dueToday: 0 };
+    }
+    filters.relevanceOr = relevanceOr;
+  }
+
+  return taskRepository.summarizeAggregate(filters);
+}
+
 module.exports = {
   getInbox,
   getMyTasks,
+  getMyTasksSummary,
   buildSelfScopeConditions,
   buildMyTasksScopeConditions,
 };

@@ -85,6 +85,8 @@ const TimeEntrySchema = new Schema(
 TimeEntrySchema.index({ createdAt: -1 });
 TimeEntrySchema.index({ timeWeekId: 1, entryDate: 1 });
 TimeEntrySchema.index({ userId: 1, entryDate: 1 });
+TimeEntrySchema.index({ assignmentId: 1, isDeleted: 1, status: 1 });
+TimeEntrySchema.index({ projectId: 1, userId: 1, entryDate: -1, isDeleted: 1 });
 
 async function ensureTimeEntryIndexes() {
   const TimeEntry = getV2Model('PtsTimeEntry', TimeEntrySchema);

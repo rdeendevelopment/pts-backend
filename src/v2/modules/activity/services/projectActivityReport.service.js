@@ -8,6 +8,7 @@ const {
 const projectAssignmentRepository = require('../../projects/repositories/projectAssignment.repository');
 const timeEntryRepository = require('../repositories/timeEntry.repository');
 const timeWeekRepository = require('../repositories/timeWeek.repository');
+const taskRepository = require('../../tasks/repositories/task.repository');
 const {
   accountHasManagePermission,
   canViewAllProjectTimeEntries,
@@ -21,6 +22,27 @@ const {
 } = require('../helpers/week.helper');
 const { toTimeEntryDto } = require('../dto/activity.dto');
 
+const ENTRY_LIST_SELECT = [
+  '_id',
+  'timeWeekId',
+  'projectId',
+  'assignmentId',
+  'userId',
+  'taskId',
+  'budgetId',
+  'workCategoryId',
+  'entryDate',
+  'minutes',
+  'description',
+  'title',
+  'status',
+  'source',
+  'billable',
+  'startTime',
+  'endTime',
+  'createdAt',
+].join(' ');
+
 function toDateKey(value) {
   if (!value) return null;
   return new Date(value).toISOString().slice(0, 10);
@@ -32,9 +54,29 @@ function parseEndDate(value) {
   return end;
 }
 
+function parsePositiveInt(value, fallback = null) {
+  if (value == null || value === '') return fallback;
+  const n = Number.parseInt(String(value), 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function resolveTaskName(taskId, taskNameById) {
+  if (!taskId) return 'General Activity';
+  return taskNameById.get(String(taskId)) || 'Deleted Task';
+}
+
+async function buildTaskNameMap(taskIds = []) {
+  const uniqueIds = [...new Set(taskIds.filter(Boolean).map(String))];
+  if (!uniqueIds.length) return new Map();
+  const tasks = await taskRepository.findTitlesByIds(uniqueIds);
+  return new Map(tasks.map((task) => [
+    String(task._id),
+    task.isDeleted ? 'Deleted Task' : (task.title || 'Deleted Task'),
+  ]));
+}
+
 async function getProjectSummary(projectId, query, req) {
   await projectsModule.getProjectForActivity(projectId, req);
-  const stats = await projectsModule.getProjectStats(projectId);
 
   const entryFilters = buildActivityUserScope(req, query, { projectId });
   if (query.startDate || query.start_date) {
@@ -45,30 +87,36 @@ async function getProjectSummary(projectId, query, req) {
   }
 
   const targetUserId = entryFilters.userId || null;
+  const weekLimit = parsePositiveInt(query.weekLimit ?? query.week_limit, null);
+  const currentWeekBounds = getWeekBounds(new Date());
 
-  const entries = await timeEntryRepository.listEntries(entryFilters);
-  const weekIds = [...new Set(entries.map((entry) => String(entry.timeWeekId)).filter(Boolean))];
-  const weeks = await Promise.all(weekIds.map((id) => timeWeekRepository.findById(id)));
+  const [stats, weekAggregates, currentWeekSum, assignment] = await Promise.all([
+    projectsModule.getProjectStats(projectId),
+    timeEntryRepository.aggregateWeekTotals(entryFilters),
+    timeEntryRepository.sumMinutes({
+      ...entryFilters,
+      entryDateFrom: currentWeekBounds.weekStartDate,
+      entryDateTo: currentWeekBounds.weekEndDate,
+    }),
+    targetUserId
+      ? projectsModule.getAssignmentForUser(projectId, targetUserId)
+      : Promise.resolve(null),
+  ]);
+
+  const weekIds = weekAggregates.map((row) => row.timeWeekId).filter(Boolean);
+  const weeks = await timeWeekRepository.findByIds(weekIds);
   const weekMap = new Map(weeks.filter(Boolean).map((week) => [String(week._id), week]));
 
-  const weekTotals = new Map();
-  for (const entry of entries) {
-    const weekId = String(entry.timeWeekId);
-    if (!weekTotals.has(weekId)) {
-      weekTotals.set(weekId, {
-        week: weekMap.get(weekId) || null,
-        totalMinutes: 0,
-        statusTotals: { draft: 0, submitted: 0, approved: 0, rejected: 0 },
-      });
+  const statusTotals = { draft: 0, submitted: 0, approved: 0, rejected: 0 };
+  let totalMinutes = 0;
+  for (const row of weekAggregates) {
+    totalMinutes += Number(row.totalMinutes || 0);
+    for (const status of Object.keys(statusTotals)) {
+      statusTotals[status] += Number(row.statusTotals?.[status] || 0);
     }
-    const row = weekTotals.get(weekId);
-    row.totalMinutes += Number(entry.minutes || 0);
-    row.statusTotals[entry.status] = (row.statusTotals[entry.status] || 0) + Number(entry.minutes || 0);
   }
 
-  const assignment = await projectsModule.getAssignmentForUser(projectId, targetUserId);
   let userBreakdown = [];
-
   if (canViewAllProjectTimeEntries(req) && !targetUserId) {
     const assignments = await projectAssignmentRepository.listByProjectId(projectId, { status: 'active' });
     const userMap = await userSummaryHelper.resolveUsersByIds(assignments.map((row) => row.userId));
@@ -83,63 +131,90 @@ async function getProjectSummary(projectId, query, req) {
     });
   } else if (assignment) {
     const user = await require('../../users/repositories/user.repository').findById(targetUserId);
+    const assignedMinutes = Number(assignment.allocation?.allocatedMinutes || 0);
+    // Prefer live entry totals over possibly stale assignment.stats.consumedMinutes
+    const consumedMinutes = Math.max(
+      Number(assignment.stats?.consumedMinutes || 0),
+      totalMinutes,
+    );
+    const remainingMinutes = assignedMinutes > 0
+      ? Math.max(0, assignedMinutes - consumedMinutes)
+      : Number(assignment.stats?.remainingMinutes || 0);
     userBreakdown = [{
       ...(userSummaryHelper.toUserSummaryDto(user) || { userId: String(targetUserId) }),
-      assignedMinutes: Number(assignment.allocation?.allocatedMinutes || 0),
-      consumedMinutes: Number(assignment.stats?.consumedMinutes || 0),
-      remainingMinutes: Number(assignment.stats?.remainingMinutes || 0),
+      assignedMinutes,
+      consumedMinutes,
+      remainingMinutes,
     }];
   }
 
-  const currentWeekBounds = getWeekBounds(new Date());
-  const currentWeekTotalMinutes = entries
-    .filter((entry) => {
-      const entryDate = new Date(entry.entryDate);
-      return entryDate >= currentWeekBounds.weekStartDate && entryDate <= currentWeekBounds.weekEndDate;
-    })
-    .reduce((sum, entry) => sum + Number(entry.minutes || 0), 0);
-
-  const statusTotals = { draft: 0, submitted: 0, approved: 0, rejected: 0 };
-  for (const entry of entries) {
-    statusTotals[entry.status] = (statusTotals[entry.status] || 0) + Number(entry.minutes || 0);
-  }
-
-  const totalMinutes = entries.reduce((sum, entry) => sum + Number(entry.minutes || 0), 0);
   const canViewAll = canViewAllProjectTimeEntries(req);
-  const visibleStats = canViewAll
+  const allocatedMinutes = canViewAll
+    ? Number(stats?.totalAssignedMinutes || 0)
+    : Number(assignment?.allocation?.allocatedMinutes || 0);
+  const loggedMinutes = canViewAll && !targetUserId
+    ? Math.max(Number(stats?.totalConsumedMinutes || 0), totalMinutes)
+    : Math.max(
+      Number(assignment?.stats?.consumedMinutes || 0),
+      Number(userBreakdown[0]?.consumedMinutes || 0),
+      totalMinutes,
+    );
+  const remainingMinutes = allocatedMinutes > 0
+    ? Math.max(0, allocatedMinutes - loggedMinutes)
+    : (canViewAll
+      ? Number(stats?.totalRemainingMinutes || 0)
+      : Math.max(0, Number(assignment?.stats?.remainingMinutes || 0)));
+  const usagePercent = allocatedMinutes > 0
+    ? Math.min(100, Math.round((loggedMinutes / allocatedMinutes) * 100))
+    : 0;
+
+  const visibleStats = canViewAll && !targetUserId
     ? {
       approvedMinutes: Number(stats?.totalApprovedMinutes || 0),
       assignedMinutes: Number(stats?.totalAssignedMinutes || 0),
-      consumedMinutes: Number(stats?.totalConsumedMinutes || 0),
-      remainingMinutes: Number(stats?.totalRemainingMinutes || 0),
+      consumedMinutes: loggedMinutes,
+      remainingMinutes,
       availableToAssignMinutes: Number(stats?.totalAvailableToAssignMinutes || 0),
     }
     : {
-      approvedMinutes: Number(assignment?.allocation?.allocatedMinutes || 0),
-      assignedMinutes: Number(assignment?.allocation?.allocatedMinutes || 0),
-      consumedMinutes: Number(assignment?.stats?.consumedMinutes || 0),
-      remainingMinutes: Number(assignment?.stats?.remainingMinutes || 0),
+      approvedMinutes: allocatedMinutes,
+      assignedMinutes: allocatedMinutes,
+      consumedMinutes: loggedMinutes,
+      remainingMinutes,
       availableToAssignMinutes: 0,
     };
+
+  const allWeeks = weekAggregates
+    .map((row) => {
+      const week = weekMap.get(String(row.timeWeekId)) || null;
+      return {
+        weekId: week ? String(week._id) : (row.timeWeekId ? String(row.timeWeekId) : null),
+        weekStartDate: toDateKey(week?.weekStartDate),
+        weekEndDate: toDateKey(week?.weekEndDate),
+        status: week?.status || 'draft',
+        totalMinutes: row.totalMinutes,
+        statusTotals: row.statusTotals,
+      };
+    })
+    .sort((a, b) => String(b.weekStartDate || '').localeCompare(String(a.weekStartDate || '')));
+
+  const limitedWeeks = weekLimit ? allWeeks.slice(0, weekLimit) : allWeeks;
 
   return {
     projectId: String(projectId),
     userId: targetUserId ? String(targetUserId) : null,
     ...visibleStats,
+    // Explicit usage contract for Overview KPIs
+    loggedMinutes,
+    allocatedMinutes,
+    usagePercent,
     totalMinutes,
-    currentWeekTotalMinutes,
+    currentWeekTotalMinutes: Number(currentWeekSum?.totalMinutes || 0),
     statusTotals,
     userBreakdown,
-    weeks: [...weekTotals.values()]
-      .map((row) => ({
-        weekId: row.week ? String(row.week._id) : null,
-        weekStartDate: toDateKey(row.week?.weekStartDate),
-        weekEndDate: toDateKey(row.week?.weekEndDate),
-        status: row.week?.status || 'draft',
-        totalMinutes: row.totalMinutes,
-        statusTotals: row.statusTotals,
-      }))
-      .sort((a, b) => String(b.weekStartDate || '').localeCompare(String(a.weekStartDate || ''))),
+    weeksTotal: allWeeks.length,
+    hasMoreWeeks: Boolean(weekLimit && allWeeks.length > weekLimit),
+    weeks: limitedWeeks,
   };
 }
 
@@ -159,8 +234,19 @@ async function getProjectWeeklyActivity(projectId, query, req) {
   if (query.entryDateFrom) entryFilters.entryDateFrom = new Date(query.entryDateFrom);
   if (query.entryDateTo) entryFilters.entryDateTo = parseEndDate(query.entryDateTo);
 
-  const entries = await timeEntryRepository.listEntries(entryFilters);
-  const userMap = await userSummaryHelper.resolveUsersByIds(entries.map((entry) => entry.userId));
+  const entries = await timeEntryRepository.listEntries(entryFilters, {
+    lean: true,
+    select: ENTRY_LIST_SELECT,
+  });
+  const taskIds = entries.map((entry) => entry.taskId).filter(Boolean);
+  const [userMap, taskNameById] = await Promise.all([
+    userSummaryHelper.resolveUsersByIds(entries.map((entry) => entry.userId)),
+    buildTaskNameMap(taskIds),
+  ]);
+  const toEnrichedEntryDto = (entry) => ({
+    ...toTimeEntryDto(entry),
+    taskName: resolveTaskName(entry.taskId, taskNameById),
+  });
   const dayKeys = buildWeekDayKeys(weekStartDate, timezone);
 
   const days = dayKeys.map((date) => ({
@@ -178,7 +264,7 @@ async function getProjectWeeklyActivity(projectId, query, req) {
     if (index === undefined) continue;
 
     const day = days[index];
-    const entryDto = toTimeEntryDto(entry);
+    const entryDto = toEnrichedEntryDto(entry);
     day.totalMinutes += Number(entry.minutes || 0);
     day.entries.push(entryDto);
 
@@ -217,7 +303,7 @@ async function getProjectWeeklyActivity(projectId, query, req) {
       entries: day.entries,
     })),
     users: [...userTotals.values()],
-    entries: entries.map(toTimeEntryDto),
+    entries: entries.map(toEnrichedEntryDto),
   };
 }
 
@@ -236,14 +322,26 @@ async function listProjectTimeEntries(projectId, query, req) {
   if (query.entryDateTo) entryFilters.entryDateTo = parseEndDate(query.entryDateTo);
   if (query.status) entryFilters.status = query.status;
 
-  const entries = await timeEntryRepository.listEntries(entryFilters);
-  const userMap = await userSummaryHelper.resolveUsersByIds(entries.map((entry) => entry.userId));
+  const limit = parsePositiveInt(query.limit, 50);
+
+  const entries = await timeEntryRepository.listEntries(entryFilters, {
+    lean: true,
+    select: ENTRY_LIST_SELECT,
+    limit,
+    // Activity feeds need newest-first; ascending + limit returned oldest rows only.
+    sort: { entryDate: -1, createdAt: -1 },
+  });
+  const [userMap, taskNameById] = await Promise.all([
+    userSummaryHelper.resolveUsersByIds(entries.map((entry) => entry.userId)),
+    buildTaskNameMap(entries.map((entry) => entry.taskId)),
+  ]);
 
   return entries.map((entry) => {
     const dto = toTimeEntryDto(entry);
     const user = userMap.get(String(entry.userId));
     return {
       ...dto,
+      taskName: resolveTaskName(entry.taskId, taskNameById),
       user: user || null,
       userName: user
         ? [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || user.email

@@ -100,6 +100,7 @@ router.get('/projects/:projectId/tasks/archived', canViewTasks, rejectClientPort
 router.post('/projects/:projectId/tasks', canWorkOnTasks, createTaskRules, validateRequest, assertProjectId, createOnProject, controller.createTask);
 
 router.get('/inbox', canViewTasks, rejectClientPortalUser, aggregateQueryRules, validateRequest, controller.getInbox);
+router.get('/my-tasks/summary', canViewTasks, rejectClientPortalUser, aggregateQueryRules, validateRequest, controller.getMyTasksSummary);
 router.get('/my-tasks', canViewTasks, rejectClientPortalUser, aggregateQueryRules, validateRequest, controller.getMyTasks);
 
 router.get('/notifications/unread-count', canViewTasks, rejectClientPortalUser, notificationQueryRules, validateRequest, controller.getNotificationUnreadCount);
