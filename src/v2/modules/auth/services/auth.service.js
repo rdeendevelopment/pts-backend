@@ -38,24 +38,24 @@ function requestMeta(req) {
 async function issueSession(account, req) {
   const refresh = tokenService.generateRefreshToken();
   const meta = requestMeta(req);
-
-  const refreshDoc = await refreshTokenRepository.createRefreshToken({
-    accountId: account._id,
-    tokenHash: refresh.hash,
-    familyId: refresh.familyId,
-    expiresAt: tokenService.refreshTokenExpiresAt(),
-    createdByIp: meta.createdByIp,
-    userAgent: meta.userAgent,
-  });
-
-  await accountRepository.updateLastLogin(account._id);
-
-  const sessionAccess = await getSessionAccessForAccount(account._id);
   const isClientAccount = account.accountType === 'client';
-  const user = isClientAccount ? null : await getUserSummaryForAccount(account._id);
-  const { clientContact, client } = isClientAccount
-    ? await getClientSessionForAccount(account)
-    : { clientContact: null, client: null };
+  const [sessionAccess, user, clientSession] = await Promise.all([
+    getSessionAccessForAccount(account._id),
+    isClientAccount ? null : getUserSummaryForAccount(account._id),
+    isClientAccount
+      ? getClientSessionForAccount(account)
+      : { clientContact: null, client: null },
+    refreshTokenRepository.createRefreshToken({
+      accountId: account._id,
+      tokenHash: refresh.hash,
+      familyId: refresh.familyId,
+      expiresAt: tokenService.refreshTokenExpiresAt(),
+      createdByIp: meta.createdByIp,
+      userAgent: meta.userAgent,
+    }),
+    accountRepository.updateLastLogin(account._id),
+  ]);
+  const { clientContact, client } = clientSession;
   const accessToken = tokenService.signAccessToken(account, sessionAccess.roles);
 
   return toAuthSessionDto({
