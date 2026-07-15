@@ -215,18 +215,27 @@ async function validateTimeEntry({
       remainingMinutes: Math.max(0, Number(row.approvedMinutes || 0) - Number(row.consumedMinutes || 0)),
     }));
 
+    const allowAssignmentExceed = Boolean(assignment.allocation?.allowExceed);
     const { budget, errorCode } = await resolveBudget(projectId, budgetId, approvedBudgets);
     if (errorCode) {
-      throw new AppError(BUDGET_ERROR_MESSAGES[errorCode] || 'Budget selection required', {
-        status: 409,
-        code: errorCode,
-      });
+      // An explicit member override is authoritative across every project type.
+      // In particular, fixed-budget projects may have money capacity but no
+      // hour-capacity budget to attach to the time entry.
+      const canLogWithoutBudget = allowAssignmentExceed
+        && errorCode === activityErrorCodes.ACTIVITY_BUDGET_REQUIRED;
+      if (canLogWithoutBudget) {
+        result.budget = null;
+      } else {
+        throw new AppError(BUDGET_ERROR_MESSAGES[errorCode] || 'Budget selection required', {
+          status: 409,
+          code: errorCode,
+        });
+      }
     }
-    result.budget = budget;
+    if (!errorCode) result.budget = budget;
 
     const requestedMinutes = Math.max(0, Number(minutes || 0));
     const capPeriod = assignment.allocation?.capPeriod || 'project';
-    const allowAssignmentExceed = Boolean(assignment.allocation?.allowExceed);
 
     const consumedInPeriod = await getCapConsumedMinutes(assignment, entryDate, excludeEntryId);
     const pendingDraftMinutes = timeWeek

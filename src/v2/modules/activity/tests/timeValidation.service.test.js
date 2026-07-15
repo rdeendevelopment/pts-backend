@@ -214,6 +214,36 @@ test('assignment.allowExceed=true bypasses assignment cap', async () => {
   assert.equal(result.canLog, true);
 });
 
+test('zero-hour assignment with allowExceed can log without an hour budget', async () => {
+  stubValidationDependencies({
+    project: { type: 'fixed_budget', allowBudgetExceed: false },
+    assignment: {
+      allocation: {
+        ...assignmentBase.allocation,
+        allocatedMinutes: 0,
+        allowExceed: true,
+        canLogTime: true,
+      },
+      stats: { consumedMinutes: 0 },
+    },
+    budgets: [],
+    pendingDraftMinutes: 0,
+  });
+
+  const result = await timeValidationService.validateTimeEntry({
+    projectId: PROJECT_ID,
+    userId: USER_ID,
+    workCategoryId: CATEGORY_ID,
+    entryDate: ENTRY_DATE,
+    minutes: 60,
+    timeWeek: { _id: '507f1f77bcf86cd799439020', userId: USER_ID, status: 'draft' },
+    throwOnError: true,
+  });
+
+  assert.equal(result.canLog, true);
+  assert.equal(result.budget, null);
+});
+
 test('budget exceed blocks when neither project nor assignment allows exceed', async () => {
   stubValidationDependencies({
     project: { allowBudgetExceed: false },
