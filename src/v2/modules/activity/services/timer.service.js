@@ -189,6 +189,17 @@ async function pauseTimer(timerId, accountId, req) {
     mapDuplicateKeyToConflict(err, { timerId: String(timer._id) });
   }
 
+  if (!updated) {
+    const current = await activeTimerRepository.findById(timer._id);
+    if (current?.status === 'paused') {
+      return toActiveTimerDto(current);
+    }
+    throw new AppError('Timer state changed before it could be paused. Please try again.', {
+      status: 409,
+      code: activityErrorCodes.ACTIVITY_TIMER_NOT_RUNNING,
+    });
+  }
+
   const timerDto = toActiveTimerDto(updated);
   activitySocketEvents.emitActivityTimerStarted(req.v2Activity.userId, timerDto);
   return timerDto;
