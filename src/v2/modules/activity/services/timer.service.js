@@ -19,7 +19,7 @@ function getMaxTimerMinutes() {
 
 function getElapsedSeconds(timer, at = new Date()) {
   const base = Number(timer.accumulatedSeconds || 0);
-  if (timer.status === 'paused') {
+  if (timer.status === 'paused' || timer.status === 'needs_correction') {
     return base;
   }
   if (timer.status === 'running') {
@@ -60,8 +60,48 @@ async function assertTimerOwner(timer, req) {
 }
 
 async function getActiveTimerForUser(userId) {
-  const timer = await activeTimerRepository.findRunningByUserId(userId);
+  let timer = await activeTimerRepository.findActionableByUserId(userId);
+  if (timer?.status === 'running') {
+    const now = new Date();
+    const elapsedSeconds = getElapsedSeconds(timer, now);
+    if (elapsedSeconds > getMaxTimerMinutes() * 60) {
+      timer = await freezeForCorrection(timer, now, null);
+    }
+  }
   return toActiveTimerDto(timer);
+}
+
+async function freezeForCorrection(timer, frozenAt = new Date(), accountId = null) {
+  if (timer.status === 'needs_correction') return timer;
+  const accumulatedSeconds = getElapsedSeconds(timer, frozenAt);
+  const updated = await activeTimerRepository.updateTimer(
+    timer._id,
+    {
+      status: 'needs_correction',
+      accumulatedSeconds,
+      pausedAt: frozenAt,
+      frozenAt,
+      correctionReason: 'maximum_duration_exceeded',
+      ...(accountId ? { updatedBy: accountId } : {}),
+    },
+    null,
+    { expectedStatus: timer.status },
+  );
+  return updated || activeTimerRepository.findById(timer._id);
+}
+
+async function freezeOverdueTimers(at = new Date()) {
+  const timers = await activeTimerRepository.listRunning();
+  let frozen = 0;
+  for (const timer of timers) {
+    if (getElapsedSeconds(timer, at) <= getMaxTimerMinutes() * 60) continue;
+    const updated = await freezeForCorrection(timer, at, null);
+    if (updated?.status === 'needs_correction') {
+      frozen += 1;
+      activitySocketEvents.emitActivityTimerStarted(timer.userId, toActiveTimerDto(updated));
+    }
+  }
+  return { inspected: timers.length, frozen };
 }
 
 async function listPausedTimersForUser(userId) {
@@ -78,16 +118,22 @@ async function startTimer(payload, accountId, req) {
     taskId: payload.taskId,
   });
 
-  const running = await activeTimerRepository.findRunningByUserId(userId);
-  if (running) {
-    throw new AppError('A timer is already running', {
+  const actionable = await activeTimerRepository.findActionableByUserId(userId);
+  if (actionable) {
+    const needsCorrection = actionable.status === 'needs_correction';
+    throw new AppError(
+      needsCorrection ? 'Correct the frozen timer before starting another timer' : 'A timer is already running',
+      {
       status: 409,
-      code: activityErrorCodes.ACTIVITY_TIMER_ALREADY_RUNNING,
+      code: needsCorrection
+        ? activityErrorCodes.ACTIVITY_TIMER_MAX_DURATION_EXCEEDED
+        : activityErrorCodes.ACTIVITY_TIMER_ALREADY_RUNNING,
       details: {
-        timerId: String(running._id),
-        projectId: String(running.projectId),
-        workCategoryId: String(running.workCategoryId),
-        taskId: running.taskId ? String(running.taskId) : null,
+        timerId: String(actionable._id),
+        timerStatus: actionable.status,
+        projectId: String(actionable.projectId),
+        workCategoryId: String(actionable.workCategoryId),
+        taskId: actionable.taskId ? String(actionable.taskId) : null,
       },
     });
   }
@@ -171,6 +217,12 @@ async function pauseTimer(timerId, accountId, req) {
 
   const now = new Date();
   const accumulatedSeconds = getElapsedSeconds(timer, now);
+  if (accumulatedSeconds > getMaxTimerMinutes() * 60) {
+    const frozen = await freezeForCorrection(timer, now, accountId);
+    const timerDto = toActiveTimerDto(frozen);
+    activitySocketEvents.emitActivityTimerStarted(req.v2Activity.userId, timerDto);
+    return timerDto;
+  }
 
   let updated;
   try {
@@ -261,6 +313,13 @@ async function stopTimer(timerId, accountId, req) {
   const timer = await assertTimerOwner(await activeTimerRepository.findById(timerId), req);
 
   if (timer.status !== 'running' && timer.status !== 'paused') {
+    if (timer.status === 'needs_correction') {
+      return {
+        needsCorrection: true,
+        timer: toActiveTimerDto(timer),
+        maxMinutes: getMaxTimerMinutes(),
+      };
+    }
     throw new AppError('Timer is not active', {
       status: 409,
       code: activityErrorCodes.ACTIVITY_TIMER_NOT_RUNNING,
@@ -280,11 +339,15 @@ async function stopTimer(timerId, accountId, req) {
   const maxMinutes = getMaxTimerMinutes();
 
   if (elapsedMinutes > maxMinutes) {
-    throw new AppError('Timer exceeded maximum duration', {
-      status: 409,
-      code: activityErrorCodes.ACTIVITY_TIMER_MAX_DURATION_EXCEEDED,
-      details: { maxMinutes, elapsedMinutes },
-    });
+    const frozen = await freezeForCorrection(timer, stoppedAt, accountId);
+    const frozenDto = toActiveTimerDto(frozen);
+    activitySocketEvents.emitActivityTimerStarted(req.v2Activity.userId, frozenDto);
+    return {
+      needsCorrection: true,
+      timer: frozenDto,
+      maxMinutes,
+      elapsedMinutes,
+    };
   }
 
   const expectedStatus = timer.status;
@@ -325,6 +388,73 @@ async function stopTimer(timerId, accountId, req) {
   const stoppedTimer = toActiveTimerDto(stoppedTimerDoc);
   activitySocketEvents.emitActivityTimerStopped(req.v2Activity.userId, stoppedTimer);
 
+  return { timer: stoppedTimer, entry };
+}
+
+async function correctTimer(timerId, payload, accountId, req) {
+  const timer = await assertTimerOwner(await activeTimerRepository.findById(timerId), req);
+  if (timer.status !== 'needs_correction') {
+    throw new AppError('Timer does not require correction', {
+      status: 409,
+      code: activityErrorCodes.ACTIVITY_TIMER_NOT_PAUSED,
+      details: { status: timer.status },
+    });
+  }
+
+  const sessionStart = new Date(timer.sessionStartedAt || timer.startedAt);
+  const correctedEnd = new Date(payload.endTime);
+  const frozenAt = new Date(timer.frozenAt || timer.pausedAt || new Date());
+  if (
+    !Number.isFinite(correctedEnd.getTime())
+    || correctedEnd <= sessionStart
+    || correctedEnd > frozenAt
+  ) {
+    throw new AppError('Corrected stop time must be after the timer start and no later than when it was frozen', {
+      status: 400,
+      code: activityErrorCodes.ACTIVITY_TIMER_MAX_DURATION_EXCEEDED,
+      details: { sessionStart, frozenAt },
+    });
+  }
+
+  const elapsedMinutes = Math.ceil((correctedEnd.getTime() - sessionStart.getTime()) / 60000);
+  const maxMinutes = getMaxTimerMinutes();
+  if (elapsedMinutes > maxMinutes) {
+    throw new AppError('Corrected duration still exceeds the maximum timer duration', {
+      status: 409,
+      code: activityErrorCodes.ACTIVITY_TIMER_MAX_DURATION_EXCEEDED,
+      details: { maxMinutes, elapsedMinutes },
+    });
+  }
+
+  const description = payload.description ?? timer.description;
+  const entry = await timeEntryService.createEntry({
+    projectId: timer.projectId,
+    assignmentId: timer.assignmentId,
+    budgetId: timer.budgetId,
+    taskId: timer.taskId,
+    workCategoryId: timer.workCategoryId,
+    entryDate: correctedEnd,
+    startTime: sessionStart,
+    endTime: correctedEnd,
+    minutes: elapsedMinutes,
+    description,
+    source: 'timer',
+  }, accountId, req);
+
+  const stoppedTimerDoc = await activeTimerRepository.updateTimer(
+    timer._id,
+    {
+      status: 'stopped',
+      stoppedAt: correctedEnd,
+      description,
+      correctionReason: null,
+      updatedBy: accountId,
+    },
+    null,
+    { expectedStatus: 'needs_correction' },
+  );
+  const stoppedTimer = toActiveTimerDto(stoppedTimerDoc);
+  activitySocketEvents.emitActivityTimerStopped(req.v2Activity.userId, stoppedTimer);
   return { timer: stoppedTimer, entry };
 }
 
@@ -375,7 +505,9 @@ module.exports = {
   pauseTimer,
   resumeTimer,
   stopTimer,
+  correctTimer,
   discardTimer,
   cancelTimer,
   getElapsedSeconds,
+  freezeOverdueTimers,
 };

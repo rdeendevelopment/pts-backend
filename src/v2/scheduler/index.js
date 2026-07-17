@@ -6,6 +6,10 @@ const {
   scheduleRetainerRenewalJob,
   executeRetainerRenewalJob,
 } = require('./jobs/retainerRenewal.job');
+const {
+  registerTimerRecoveryJob,
+  scheduleTimerRecoveryJob,
+} = require('./jobs/timerRecovery.job');
 
 let started = false;
 
@@ -20,7 +24,9 @@ async function startScheduler() {
 
   const agenda = await getAgenda();
   registerRetainerRenewalJob(agenda);
+  registerTimerRecoveryJob(agenda);
   await scheduleRetainerRenewalJob(agenda);
+  await scheduleTimerRecoveryJob(agenda);
   started = true;
   info('PTS scheduler started (Agenda)');
   return agenda;

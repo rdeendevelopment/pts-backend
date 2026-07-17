@@ -32,7 +32,10 @@ async function dropLegacyIndexes(collection) {
   for (const idx of indexes) {
     const name = idx.name;
     if (name === '_id_') continue;
-    if (!DROP_INDEX_NAMES.includes(name)) continue;
+    const openStatuses = idx.partialFilterExpression?.status?.$in || [];
+    const outdatedOpenIndex = name === 'pts_active_timers_user_context_open_unique'
+      && !openStatuses.includes('needs_correction');
+    if (!DROP_INDEX_NAMES.includes(name) && !outdatedOpenIndex) continue;
     await collection.dropIndex(name);
     console.log(`[TIMER INDEX] dropped old index ${name}`);
   }

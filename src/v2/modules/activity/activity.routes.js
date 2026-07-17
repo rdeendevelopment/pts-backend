@@ -22,6 +22,7 @@ const {
   validatePreviewRules,
   timerStartRules,
   timerIdRules,
+  timerCorrectionRules,
   projectIdParamRules,
   projectSummaryRules,
   projectWeeklyRules,
@@ -112,6 +113,14 @@ router.post('/timers/:id/stop', canViewActivity, timerIdRules, validateRequest, 
     next(err);
   }
 }, timerController.stopTimer);
+router.post('/timers/:id/correct', canViewActivity, timerCorrectionRules, validateRequest, (req, res, next) => {
+  try {
+    assertObjectId(req.params.id, 'id');
+    next();
+  } catch (err) {
+    next(err);
+  }
+}, timerController.correctTimer);
 router.post('/timers/:id/pause', canViewActivity, timerIdRules, validateRequest, (req, res, next) => {
   try {
     assertObjectId(req.params.id, 'id');

@@ -231,11 +231,12 @@ async function submitWeek(weekId, accountId, req) {
     });
   }
 
-  const runningTimer = await activeTimerRepository.findRunningByUserId(week.userId);
-  if (runningTimer) {
-    throw new AppError('Stop the running timer before submitting the week', {
+  const actionableTimer = await activeTimerRepository.findActionableByUserId(week.userId);
+  if (actionableTimer) {
+    throw new AppError('Resolve the active timer before submitting the week', {
       status: 409,
       code: activityErrorCodes.ACTIVITY_TIMER_ALREADY_RUNNING,
+      details: { timerStatus: actionableTimer.status },
     });
   }
 

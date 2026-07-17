@@ -1,6 +1,7 @@
 const { AGENDA_COLLECTION } = require('../../../scheduler/agenda.client');
 const { getV2Connection } = require('../../../database/connection');
 const { JOB_NAME } = require('../../../scheduler/jobs/retainerRenewal.job');
+const { JOB_NAME: TIMER_RECOVERY_JOB_NAME } = require('../../../scheduler/jobs/timerRecovery.job');
 const scheduledJobRunRepository = require('../repositories/scheduledJobRun.repository');
 
 function toJobRunDto(doc) {
@@ -63,6 +64,12 @@ async function listJobDefinitions() {
       key: JOB_NAME,
       label: 'Retainer auto-renewal',
       description: 'Creates monthly retainer cycle budgets for active projects.',
+      agendaCollection: AGENDA_COLLECTION,
+    },
+    {
+      key: TIMER_RECOVERY_JOB_NAME,
+      label: 'Overdue timer recovery',
+      description: 'Freezes timers that exceed the maximum duration so users can correct them.',
       agendaCollection: AGENDA_COLLECTION,
     },
   ];

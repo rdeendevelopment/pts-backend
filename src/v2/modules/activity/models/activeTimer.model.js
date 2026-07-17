@@ -50,6 +50,8 @@ const ActiveTimerSchema = new Schema(
     sessionStartedAt: { type: Date, default: null },
     accumulatedSeconds: { type: Number, default: 0, min: 0 },
     pausedAt: { type: Date, default: null },
+    frozenAt: { type: Date, default: null },
+    correctionReason: { type: String, default: null, trim: true },
     stoppedAt: { type: Date, default: null },
     description: { type: String, default: null, trim: true },
     status: {
@@ -91,7 +93,7 @@ ActiveTimerSchema.index(
     unique: true,
     name: 'pts_active_timers_user_context_open_unique',
     partialFilterExpression: {
-      status: { $in: ['running', 'paused'] },
+      status: { $in: ['running', 'paused', 'needs_correction'] },
       isDeleted: false,
     },
   }

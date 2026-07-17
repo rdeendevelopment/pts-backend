@@ -13,6 +13,15 @@ async function findRunningByUserId(userId) {
   return ActiveTimer.findOne({ userId, status: 'running', isDeleted: false }).exec();
 }
 
+async function findActionableByUserId(userId) {
+  const ActiveTimer = getActiveTimerModel();
+  return ActiveTimer.findOne({
+    userId,
+    status: { $in: ['running', 'needs_correction'] },
+    isDeleted: false,
+  }).sort({ updatedAt: -1 }).exec();
+}
+
 async function findPausedByContext(userId, context) {
   const ActiveTimer = getActiveTimerModel();
   return ActiveTimer.findOne(buildContextQuery(userId, context, { status: 'paused' })).exec();
@@ -22,7 +31,7 @@ async function findOpenByContext(userId, context) {
   const ActiveTimer = getActiveTimerModel();
   return ActiveTimer.findOne({
     ...buildContextQuery(userId, context),
-    status: { $in: ['running', 'paused'] },
+    status: { $in: ['running', 'paused', 'needs_correction'] },
   }).exec();
 }
 
@@ -30,6 +39,14 @@ async function listPausedByUserId(userId, { limit = 50 } = {}) {
   const ActiveTimer = getActiveTimerModel();
   return ActiveTimer.find({ userId, status: 'paused', isDeleted: false })
     .sort({ pausedAt: -1, updatedAt: -1 })
+    .limit(limit)
+    .exec();
+}
+
+async function listRunning({ limit = 500 } = {}) {
+  const ActiveTimer = getActiveTimerModel();
+  return ActiveTimer.find({ status: 'running', isDeleted: false })
+    .sort({ startedAt: 1 })
     .limit(limit)
     .exec();
 }
@@ -63,9 +80,11 @@ async function countRunningForProject(projectId) {
 module.exports = {
   findById,
   findRunningByUserId,
+  findActionableByUserId,
   findPausedByContext,
   findOpenByContext,
   listPausedByUserId,
+  listRunning,
   createTimer,
   updateTimer,
   countRunningForProject,

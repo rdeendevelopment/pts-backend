@@ -71,6 +71,8 @@ function toActiveTimerDto(timer) {
     sessionStartedAt: doc.sessionStartedAt || doc.startedAt,
     accumulatedSeconds: doc.accumulatedSeconds || 0,
     pausedAt: doc.pausedAt || null,
+    frozenAt: doc.frozenAt || null,
+    correctionReason: doc.correctionReason || null,
     stoppedAt: doc.stoppedAt,
     description: doc.description,
     status: doc.status,

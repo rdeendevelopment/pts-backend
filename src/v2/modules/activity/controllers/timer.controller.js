@@ -36,6 +36,12 @@ async function stopTimer(req, res) {
   return sendSuccess(res, data);
 }
 
+async function correctTimer(req, res) {
+  const timerId = assertObjectId(req.params.id, 'id');
+  const data = await timerService.correctTimer(timerId, req.body, req.v2Auth.accountId, req);
+  return sendSuccess(res, data);
+}
+
 async function pauseTimer(req, res) {
   const timerId = assertObjectId(req.params.id, 'id');
   const data = await timerService.pauseTimer(timerId, req.v2Auth.accountId, req);
@@ -67,6 +73,7 @@ module.exports = {
   pauseTimer: asyncHandler(pauseTimer),
   resumeTimer: asyncHandler(resumeTimer),
   stopTimer: asyncHandler(stopTimer),
+  correctTimer: asyncHandler(correctTimer),
   discardTimer: asyncHandler(discardTimer),
   cancelTimer: asyncHandler(cancelTimer),
 };

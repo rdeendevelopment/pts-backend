@@ -97,6 +97,11 @@ const timerStartRules = [
 ];
 
 const timerIdRules = [param('id').isString().notEmpty()];
+const timerCorrectionRules = [
+  ...timerIdRules,
+  body('endTime').isISO8601(),
+  body('description').optional().isString(),
+];
 
 const projectIdRules = [param('projectId').isString().notEmpty()];
 
@@ -157,6 +162,7 @@ module.exports = {
   validatePreviewRules,
   timerStartRules,
   timerIdRules,
+  timerCorrectionRules,
   projectIdParamRules: projectIdRules,
   projectSummaryRules,
   projectWeeklyRules,

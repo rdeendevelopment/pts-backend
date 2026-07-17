@@ -1,7 +1,7 @@
 const WEEK_STATUSES = ['draft', 'submitted', 'approved', 'rejected'];
 const ENTRY_STATUSES = ['draft', 'submitted', 'approved', 'rejected'];
 const ENTRY_SOURCES = ['manual', 'timer'];
-const TIMER_STATUSES = ['running', 'paused', 'stopped', 'cancelled', 'discarded'];
+const TIMER_STATUSES = ['running', 'paused', 'needs_correction', 'stopped', 'cancelled', 'discarded'];
 const WORK_CATEGORY_STATUSES = ['active', 'inactive'];
 
 const DEFAULT_LIST_LIMIT = 20;
