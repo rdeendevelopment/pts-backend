@@ -215,10 +215,10 @@ function initializeSocketServer() {
  *
  * Required order:
  * 1. Connect MongoDB
- * 2. Complete PTS v2 bootstrap
+ * 2. Start PTS v2 bootstrap in the background
  * 3. Register fallback routes
- * 4. Initialize Socket.IO
- * 5. Start accepting HTTP requests
+ * 4. Start accepting HTTP requests
+ * 5. Initialize Socket.IO when PTS v2 bootstrap is ready
  */
 async function startServer() {
   try {
@@ -229,18 +229,27 @@ async function startServer() {
     console.log("[bootstrap] MongoDB connected");
     console.log("[bootstrap] Starting PTS v2 bootstrap...");
 
-    await v2Api.bootstrap();
-
-    console.log("[bootstrap] PTS v2 bootstrap completed");
+    const v2BootstrapPromise = v2Api.bootstrap();
 
     registerFallbackRoutes();
-    initializeSocketServer();
 
     server.listen(port, () => {
       console.log(
         `🚀 ${constants.APP_TITLE} running in ${constants.APP_ENV} on port ${port} (v2-only)`
       );
     });
+
+    v2BootstrapPromise
+      .then(() => {
+        console.log("[bootstrap] PTS v2 bootstrap completed");
+        initializeSocketServer();
+      })
+      .catch((error) => {
+        console.error(
+          "[bootstrap] PTS v2 bootstrap failed; HTTP health endpoint remains available:",
+          error?.stack || error?.message || error
+        );
+      });
   } catch (error) {
     console.error(
       "[bootstrap] Application startup failed:",

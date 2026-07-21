@@ -1,5 +1,11 @@
 const { DAY_FIELDS, hoursToMinutes, coerceBool, coerceDate } = require('../helpers/phase2Checksum.helper');
 
+function resolveLegacyActivityStatus(entry) {
+  if (entry.verified) return 'approved';
+  if (entry.submitted) return 'submitted';
+  return 'draft';
+}
+
 function buildDailyNotesIndex(dailyNotesRows = []) {
   const index = new Map();
   for (const row of dailyNotesRows) {
@@ -65,6 +71,10 @@ function buildTimeEntryPayload({
   workCategoryId,
   entry,
 }) {
+  const status = resolveLegacyActivityStatus(entry);
+  const isLocked = status !== 'draft';
+  const lockedAt = isLocked ? (entry.approvedDate || entry.updatedAt || entry.createdAt) : null;
+
   return {
     timeWeekId,
     projectId,
@@ -80,28 +90,29 @@ function buildTimeEntryPayload({
     title: null,
     description: entry.description || null,
     source: 'manual',
-    status: 'approved',
-    isLocked: true,
-    lockedAt: entry.approvedDate || entry.updatedAt || new Date(),
+    status,
+    isLocked,
+    lockedAt,
     billable: true,
-    approvedAt: entry.approvedDate || entry.updatedAt || new Date(),
+    approvedAt: status === 'approved'
+      ? (entry.approvedDate || entry.updatedAt || entry.createdAt)
+      : null,
     approvedBy: null,
     isDeleted: false,
     deletedAt: null,
   };
 }
 
-function buildTimeWeekPayload({ userId, weekStartDate, weekEndDate, latestEntryDate, approvedDate }) {
-  const submittedAt = latestEntryDate || approvedDate || new Date();
+function buildTimeWeekPayload({ userId, weekStartDate, weekEndDate }) {
   return {
     userId,
     weekStartDate,
     weekEndDate,
-    status: 'approved',
+    status: 'draft',
     totalMinutes: 0,
     totalEntries: 0,
-    submittedAt,
-    approvedAt: approvedDate || submittedAt,
+    submittedAt: null,
+    approvedAt: null,
     approvedBy: null,
     isDeleted: false,
     deletedAt: null,
@@ -109,6 +120,7 @@ function buildTimeWeekPayload({ userId, weekStartDate, weekEndDate, latestEntryD
 }
 
 module.exports = {
+  resolveLegacyActivityStatus,
   buildDailyNotesIndex,
   expandSqlWorkingHoursRow,
   buildTimeEntryPayload,

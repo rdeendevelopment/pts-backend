@@ -44,6 +44,21 @@ function createMapCache() {
   return new Map();
 }
 
+async function preloadMapCache(connection) {
+  const cache = createMapCache();
+  const maps = await connection.collection('pts_migration_maps').find({
+    oldId: { $ne: null },
+    status: { $in: ['mapped', 'merged', 'skipped'] },
+  }).sort({ migratedAt: -1, createdAt: -1 }).toArray();
+
+  for (const map of maps) {
+    const key = mapCacheKey(map.entityType, map.oldCollection, map.oldId);
+    if (!cache.has(key)) cache.set(key, map.newObjectId);
+  }
+
+  return cache;
+}
+
 async function recordError(connection, {
   runId,
   dryRun,
@@ -187,16 +202,29 @@ async function importSqlAccountUser({
   if (existingAccount) {
     entityStats.skipped += 1;
     seenEmails.add(row.email);
-    await recordError(connection, {
+    const existingUser = await userRepository.findByAccountId(existingAccount._id);
+    await saveMap(connection, {
       runId: run._id,
       dryRun,
-      entityType: oldCollection === 'admins' ? 'admin' : 'user',
+      cache,
+      entityType: 'account',
       oldCollection,
       oldId: row.legacyId,
-      code: 'EMAIL_EXISTS',
-      message: `Email already exists in V2: ${row.email}`,
-      rawData: { email: row.email },
+      newObjectId: existingAccount._id,
+      status: 'merged',
     });
+    if (existingUser) {
+      await saveMap(connection, {
+        runId: run._id,
+        dryRun,
+        cache,
+        entityType: 'user',
+        oldCollection,
+        oldId: row.legacyId,
+        newObjectId: existingUser._id,
+        status: 'merged',
+      });
+    }
     return;
   }
 
@@ -335,7 +363,7 @@ async function runSqlPhase1Migration(options = {}) {
   });
   report.runId = run._id ? String(run._id) : null;
 
-  const cache = createMapCache();
+  const cache = await preloadMapCache(connection);
   const roleCache = new Map();
   const seenEmails = new Set();
 
@@ -349,6 +377,10 @@ async function runSqlPhase1Migration(options = {}) {
   for (const raw of data.users) {
     try {
       const row = transformSqlUserRow(raw);
+      if (resolveCachedId(cache, 'user', 'users', row.legacyId)) {
+        report.entities.users.skipped += 1;
+        continue;
+      }
       await importSqlAccountUser({
         connection,
         run,
@@ -378,6 +410,10 @@ async function runSqlPhase1Migration(options = {}) {
   for (const raw of data.admins) {
     try {
       const row = transformSqlAdminRow(raw);
+      if (resolveCachedId(cache, 'user', 'admins', row.legacyId)) {
+        report.entities.admins.skipped += 1;
+        continue;
+      }
       await importSqlAccountUser({
         connection,
         run,
@@ -423,6 +459,24 @@ async function runSqlPhase1Migration(options = {}) {
         continue;
       }
 
+      if (resolveCachedId(cache, 'client', 'clients', transformed.legacyId)) {
+        report.entities.clients.skipped += 1;
+        continue;
+      }
+
+      const existingClient = await clientRepository.findByNormalizedName(
+        transformed.payload.normalizedName
+      );
+      if (existingClient) {
+        await saveMap(connection, {
+          runId: run._id, dryRun, cache,
+          entityType: 'client', oldCollection: 'clients',
+          oldId: transformed.legacyId, newObjectId: existingClient._id, status: 'merged',
+        });
+        report.entities.clients.skipped += 1;
+        continue;
+      }
+
       if (dryRun) {
         const fakeId = new Types.ObjectId();
         await saveMap(connection, {
@@ -438,10 +492,7 @@ async function runSqlPhase1Migration(options = {}) {
         continue;
       }
 
-      let client = await clientRepository.findByNormalizedName(transformed.payload.normalizedName);
-      if (!client) {
-        client = await clientRepository.createClient(transformed.payload);
-      }
+      const client = await clientRepository.createClient(transformed.payload);
 
       await saveMap(connection, {
         runId: run._id,
@@ -486,6 +537,11 @@ async function runSqlPhase1Migration(options = {}) {
         continue;
       }
 
+      if (resolveCachedId(cache, 'project', 'projects', transformed.legacyId)) {
+        report.entities.projects.skipped += 1;
+        continue;
+      }
+
       const clientId = transformed.legacyClientId
         ? resolveCachedId(cache, 'client', 'clients', transformed.legacyClientId)
         : null;
@@ -507,6 +563,20 @@ async function runSqlPhase1Migration(options = {}) {
 
       const payload = { ...transformed.payload, clientId };
 
+      const existingProject = await projectRepository.findByClientAndNormalizedName(
+        clientId,
+        payload.normalizedName
+      );
+      if (existingProject) {
+        await saveMap(connection, {
+          runId: run._id, dryRun, cache,
+          entityType: 'project', oldCollection: 'projects',
+          oldId: transformed.legacyId, newObjectId: existingProject._id, status: 'merged',
+        });
+        report.entities.projects.skipped += 1;
+        continue;
+      }
+
       if (dryRun) {
         const fakeId = new Types.ObjectId();
         await saveMap(connection, {
@@ -522,14 +592,8 @@ async function runSqlPhase1Migration(options = {}) {
         continue;
       }
 
-      let project = await projectRepository.findByClientAndNormalizedName(
-        clientId,
-        payload.normalizedName
-      );
-      if (!project) {
-        project = await projectRepository.createProject(payload);
-        await getProjectStatsModel().create(buildEmptyProjectStats(project._id));
-      }
+      const project = await projectRepository.createProject(payload);
+      await getProjectStatsModel().create(buildEmptyProjectStats(project._id));
 
       if (transformed.hoursMinutes > 0) {
         const existingBudgets = await projectBudgetRepository.listByProjectId(project._id);
@@ -591,6 +655,10 @@ async function runSqlPhase1Migration(options = {}) {
       }
 
       const transformed = transformSqlAssignmentRow(raw);
+      if (resolveCachedId(cache, 'project_assignment', 'project_users', transformed.legacyId)) {
+        report.entities.assignments.skipped += 1;
+        continue;
+      }
       const projectId = transformed.legacyProjectId
         ? resolveCachedId(cache, 'project', 'projects', transformed.legacyProjectId)
         : null;
@@ -619,15 +687,26 @@ async function runSqlPhase1Migration(options = {}) {
         userId,
       };
 
+      const existingAssignment = await projectAssignmentRepository.findByProjectAndUser(
+        projectId,
+        userId
+      );
+      if (existingAssignment) {
+        await saveMap(connection, {
+          runId: run._id, dryRun, cache,
+          entityType: 'project_assignment', oldCollection: 'project_users',
+          oldId: transformed.legacyId, newObjectId: existingAssignment._id, status: 'merged',
+        });
+        report.entities.assignments.skipped += 1;
+        continue;
+      }
+
       if (dryRun) {
         report.entities.assignments.imported += 1;
         continue;
       }
 
-      let assignment = await projectAssignmentRepository.findByProjectAndUser(projectId, userId);
-      if (!assignment) {
-        assignment = await projectAssignmentRepository.createAssignment(payload);
-      }
+      const assignment = await projectAssignmentRepository.createAssignment(payload);
 
       await saveMap(connection, {
         runId: run._id,
@@ -663,6 +742,12 @@ async function runSqlPhase1Migration(options = {}) {
       const transformed = transformSqlWorkCategoryRow(raw, { usedCodes });
       if (transformed.error) {
         report.entities.workCategories.errors += 1;
+        continue;
+      }
+
+
+      if (resolveCachedId(cache, 'work_category', 'project_default_tasks', transformed.legacyId)) {
+        report.entities.workCategories.skipped += 1;
         continue;
       }
 

@@ -6,6 +6,7 @@ const {
 } = require('../parsers/sqlInsertStream.parser');
 const {
   buildDailyNotesIndex,
+  buildTimeEntryPayload,
   expandSqlWorkingHoursRow,
 } = require('../transformers/sqlActivity.transformer');
 
@@ -41,4 +42,41 @@ test('expandSqlWorkingHoursRow expands day columns with notes', () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].minutes, 90);
   assert.equal(rows[0].description, 'Test note');
+});
+
+test('buildTimeEntryPayload preserves legacy approval lifecycle', () => {
+  const base = {
+    timeWeekId: '507f1f77bcf86cd799439011',
+    projectId: '507f1f77bcf86cd799439012',
+    assignmentId: '507f1f77bcf86cd799439013',
+    userId: '507f1f77bcf86cd799439014',
+    budgetId: null,
+    workCategoryId: '507f1f77bcf86cd799439015',
+  };
+  const entry = {
+    entryDate: new Date('2014-01-06T12:00:00.000Z'),
+    minutes: 60,
+    updatedAt: new Date('2014-01-07T12:00:00.000Z'),
+  };
+
+  const draft = buildTimeEntryPayload({ ...base, entry: { ...entry } });
+  assert.equal(draft.status, 'draft');
+  assert.equal(draft.isLocked, false);
+  assert.equal(draft.approvedAt, null);
+
+  const submitted = buildTimeEntryPayload({
+    ...base,
+    entry: { ...entry, submitted: true },
+  });
+  assert.equal(submitted.status, 'submitted');
+  assert.equal(submitted.isLocked, true);
+  assert.equal(submitted.approvedAt, null);
+
+  const approved = buildTimeEntryPayload({
+    ...base,
+    entry: { ...entry, submitted: true, verified: true },
+  });
+  assert.equal(approved.status, 'approved');
+  assert.equal(approved.isLocked, true);
+  assert.deepEqual(approved.approvedAt, entry.updatedAt);
 });

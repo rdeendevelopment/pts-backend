@@ -30,6 +30,7 @@ const { getWeekBounds } = require('../../../modules/activity/helpers/week.helper
 const timeWeekRepository = require('../../../modules/activity/repositories/timeWeek.repository');
 const timeEntryRepository = require('../../../modules/activity/repositories/timeEntry.repository');
 const workCategoryRepository = require('../../../modules/activity/repositories/workCategory.repository');
+const projectAssignmentRepository = require('../../../modules/projects/repositories/projectAssignment.repository');
 const { getTimeEntryModel } = require('../../../modules/activity/models/timeEntry.model');
 const { getProjectAssignmentModel } = require('../../../modules/projects/models/projectAssignment.model');
 
@@ -146,12 +147,17 @@ async function preloadWeekCacheFromDb() {
   return cache;
 }
 
-async function recalculateAllWeekTotals({ verbose = false } = {}) {
+async function recalculateAllWeekTotals({ verbose = false, affectedWeekIds = [] } = {}) {
   const TimeWeek = getTimeWeekModel();
-  const weeks = await TimeWeek.find({
+  const zeroTotalQuery = {
     isDeleted: false,
     $or: [{ totalMinutes: 0 }, { totalEntries: 0 }],
-  }).select('_id').lean();
+  };
+  const affectedIds = [...new Set(affectedWeekIds)].map((id) => new Types.ObjectId(id));
+  const query = affectedIds.length
+    ? { $or: [zeroTotalQuery, { _id: { $in: affectedIds }, isDeleted: false }] }
+    : zeroTotalQuery;
+  const weeks = await TimeWeek.find(query).select('_id').lean();
 
   let count = 0;
   for (const week of weeks) {
@@ -163,6 +169,41 @@ async function recalculateAllWeekTotals({ verbose = false } = {}) {
     }
   }
   return count;
+}
+
+async function synchronizeAffectedWeekStatuses(affectedWeekIds = []) {
+  let updated = 0;
+
+  for (const weekId of new Set(affectedWeekIds)) {
+    const week = await getTimeWeekModel().findById(weekId).lean();
+    if (!week || (week.status === 'approved' && week.approvedBy)) continue;
+
+    const entries = await getTimeEntryModel().find({
+      timeWeekId: week._id,
+      isDeleted: false,
+      status: { $in: ['draft', 'submitted', 'approved'] },
+    }).select('status lockedAt approvedAt updatedAt').lean();
+    if (!entries.length) continue;
+
+    const hasDraft = entries.some((entry) => entry.status === 'draft');
+    const hasSubmitted = entries.some((entry) => entry.status === 'submitted');
+    const status = hasDraft ? 'draft' : (hasSubmitted ? 'submitted' : 'approved');
+    const latestTimestamp = entries
+      .map((entry) => entry.approvedAt || entry.lockedAt || entry.updatedAt)
+      .filter(Boolean)
+      .sort((a, b) => b - a)[0] || null;
+
+    await timeWeekRepository.updateWeek(week._id, {
+      status,
+      submittedAt: status === 'draft' ? null : latestTimestamp,
+      approvedAt: status === 'approved' ? latestTimestamp : null,
+      approvedBy: status === 'approved' ? week.approvedBy : null,
+      lockedAt: status === 'draft' ? null : latestTimestamp,
+    });
+    updated += 1;
+  }
+
+  return updated;
 }
 
 async function resolveDefaultWorkCategoryId() {
@@ -340,17 +381,28 @@ async function runSqlPhase2Migration(options = {}) {
       const { entry, mapOldId, userId, projectId, workCategoryId, budgetId, checksum } = item;
 
       const assignmentKey = `${String(projectId)}:${String(userId)}`;
-      const assignment = assignmentCache.get(assignmentKey) || null;
+      let assignment = assignmentCache.get(assignmentKey) || null;
       if (!assignment) {
-        report.expandedEntries.skipped += 1;
-        bumpError(report, 'MISSING_ASSIGNMENT');
-        await recordError(connection, {
-          runId: run._id, dryRun, entityType: 'time_entry', oldCollection: 'working_hours',
-          oldId: mapOldId, code: 'MISSING_ASSIGNMENT',
-          message: 'No project assignment for user/project pair',
-          rawData: { userId: String(userId), projectId: String(projectId) },
-        });
-        continue;
+        assignment = dryRun
+          ? { _id: new Types.ObjectId() }
+          : await withDbRetry(
+            () => projectAssignmentRepository.createAssignment({
+              projectId,
+              userId,
+              role: 'member',
+              status: 'active',
+              allocation: {
+                allocatedMinutes: 0,
+                capPeriod: 'project',
+                allowExceed: false,
+                canLogTime: true,
+              },
+              stats: { consumedMinutes: 0, remainingMinutes: 0 },
+              assignedAt: entry.entryDate || new Date(),
+            }),
+            { label: 'createMissingAssignment' }
+          );
+        assignmentCache.set(assignmentKey, assignment);
       }
 
       const { weekStartDate, weekEndDate } = getWeekBounds(entry.entryDate);
@@ -383,13 +435,6 @@ async function runSqlPhase2Migration(options = {}) {
               entityType: 'time_week', oldCollection: 'sql_week', oldId: weekMapId,
               newObjectId: week._id,
             });
-          } else if (week.status !== 'approved') {
-            week = await timeWeekRepository.updateWeek(week._id, {
-              status: 'approved',
-              submittedAt: entry.updatedAt || entry.entryDate,
-              approvedAt: entry.approvedDate || new Date(),
-            });
-            report.weeks.updated += 1;
           } else {
             report.weeks.skipped += 1;
           }
@@ -508,11 +553,15 @@ async function runSqlPhase2Migration(options = {}) {
   }
 
   if (!dryRun) {
+    await synchronizeAffectedWeekStatuses([...affectedWeekIds]);
     if (verbose) {
       // eslint-disable-next-line no-console
       console.log('[phase2] recalculating week totals...');
     }
-    const recalculated = await recalculateAllWeekTotals({ verbose });
+    const recalculated = await recalculateAllWeekTotals({
+      verbose,
+      affectedWeekIds: [...affectedWeekIds],
+    });
     report.weeks.updated = recalculated;
   }
 
