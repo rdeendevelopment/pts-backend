@@ -1,0 +1,248 @@
+<div class="uva-shell">
+  <app-navbar></app-navbar>
+
+  <div class="uva-page">
+    <!-- 1. Compact header -->
+    <header class="uva-header">
+      <div class="uva-header-copy">
+        <h1>My Timesheets</h1>
+        <p>Review, edit, and submit your weekly time.</p>
+      </div>
+      <button
+        class="uva-btn uva-btn-primary"
+        type="button"
+        (click)="editWeek(selectedWeek || visibleWeeks[0] || null)"
+      >
+        <i class="ri-pencil-line"></i>
+        Edit Week
+      </button>
+    </header>
+
+    <!-- 2. Inline metrics (not four heavy cards) -->
+    <div class="uva-metrics" *ngIf="!loading || listSummary.weekCount">
+      <span><strong>{{ listSummary.weekCount }}</strong> weeks</span>
+      <span class="uva-metrics-dot"></span>
+      <span><strong>{{ submittedCount }}</strong> submitted</span>
+      <span class="uva-metrics-dot"></span>
+      <span><strong>{{ approvedCount }}</strong> approved</span>
+      <span class="uva-metrics-dot"></span>
+      <span><strong>{{ durationLabel(filteredTotalMinutes) }}</strong> logged</span>
+    </div>
+
+    <!-- 3. Light toolbar -->
+    <div class="uva-toolbar">
+      <div class="uva-presets" role="tablist" aria-label="Date range">
+        <button type="button" [class.active]="rangePreset === 'month'" (click)="setPresetRange('month')">Month</button>
+        <button type="button" [class.active]="rangePreset === 'quarter'" (click)="setPresetRange('quarter')">3 Months</button>
+        <button type="button" [class.active]="rangePreset === 'year'" (click)="setPresetRange('year')">Year</button>
+        <button type="button" [class.active]="rangePreset === 'all'" (click)="setPresetRange('all')">All</button>
+      </div>
+
+      <div class="uva-toolbar-fields">
+        <input type="date" [(ngModel)]="startDate" aria-label="Start date" />
+        <span class="uva-toolbar-sep">→</span>
+        <input type="date" [(ngModel)]="endDate" aria-label="End date" />
+        <select [(ngModel)]="statusFilter" aria-label="Status">
+          <option value="all">All statuses</option>
+          <option value="draft">Draft</option>
+          <option value="submitted">Submitted</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+        </select>
+        <div class="uva-search">
+          <i class="ri-search-line"></i>
+          <input type="text" [(ngModel)]="search" placeholder="Search weeks" />
+        </div>
+        <button type="button" class="uva-btn uva-btn-primary uva-btn-sm" (click)="applyFilters()">Apply</button>
+        <button type="button" class="uva-btn uva-btn-ghost uva-btn-sm" (click)="clearFilters()">Reset</button>
+      </div>
+    </div>
+
+    <!-- 4. Week list (not a data table) -->
+    <section class="uva-weeks">
+      <div *ngIf="loading" class="uva-state">
+        <div class="spinner-border spinner-border-sm text-light" role="status"></div>
+        <span>Loading timesheets…</span>
+      </div>
+
+      <div *ngIf="!loading && !visibleWeeks.length" class="uva-state empty">
+        <i class="ri-calendar-todo-line"></i>
+        <div>
+          <strong>No timesheets match</strong>
+          <p>Try another range or clear filters.</p>
+        </div>
+      </div>
+
+      <ng-container *ngIf="!loading && visibleWeeks.length">
+        <article
+          class="uva-week"
+          *ngFor="let week of visibleWeeks; trackBy: trackByWeek"
+          [class.is-open]="expandedWeekId === week.id"
+        >
+          <button type="button" class="uva-week-row" (click)="toggleWeek(week)">
+            <i class="ri-arrow-right-s-line uva-chevron" [class.open]="expandedWeekId === week.id"></i>
+            <div class="uva-week-main">
+              <div class="uva-week-title">{{ weekRangeLabel(week) }}</div>
+              <div class="uva-week-meta">
+                <span *ngIf="week.submitted_at">Submitted {{ dateTimeLabel(week.submitted_at) }}</span>
+                <span *ngIf="week.approved_at"> · Approved {{ dateTimeLabel(week.approved_at) }}</span>
+                <span *ngIf="!week.submitted_at && !week.approved_at">
+                  {{ week.status === 'rejected' ? 'Needs updates' : 'Not submitted yet' }}
+                </span>
+              </div>
+            </div>
+            <strong class="uva-week-hours">{{ durationLabel(week.total_minutes) }}</strong>
+            <span class="uva-pill" [ngClass]="weekStatusClassFor(week.status)">
+              {{ statusLabel(week.status) }}
+            </span>
+            <div class="uva-week-actions" (click)="$event.stopPropagation()">
+              <button
+                type="button"
+                class="uva-icon"
+                *ngIf="isWeekEditable(week)"
+                title="Edit week"
+                (click)="editWeek(week, $event)"
+              >
+                <i class="ri-pencil-line"></i>
+              </button>
+            </div>
+          </button>
+
+          <!-- Flattened expand panel -->
+          <div class="uva-week-panel" *ngIf="expandedWeekId === week.id">
+            <div *ngIf="detailLoading" class="uva-state panel">
+              <div class="spinner-border spinner-border-sm text-light" role="status"></div>
+              <span>Loading week…</span>
+            </div>
+
+            <ng-container *ngIf="!detailLoading && selectedWeek">
+              <div class="uva-panel-bar">
+                <div class="uva-panel-facts">
+                  <span>{{ projectGroups.length }} {{ projectGroups.length === 1 ? 'project' : 'projects' }}</span>
+                </div>
+                <div class="uva-panel-actions">
+                  <button type="button" class="uva-btn uva-btn-ghost uva-btn-sm" (click)="showDailyBreakdown = !showDailyBreakdown">
+                    {{ showDailyBreakdown ? 'Hide daily' : 'Daily' }}
+                  </button>
+                  <button
+                    type="button"
+                    class="uva-btn uva-btn-primary uva-btn-sm"
+                    *ngIf="canSubmit(selectedWeek)"
+                    (click)="submitSelectedWeek()"
+                  >
+                    {{ selectedWeek.status === 'rejected' ? 'Resubmit' : 'Submit' }}
+                  </button>
+                </div>
+              </div>
+
+              <div class="uva-banner danger" *ngIf="selectedWeek.status === 'rejected'">
+                <i class="ri-error-warning-line"></i>
+                {{ selectedWeek.rejection_reason || 'Update your entries and resubmit this week.' }}
+              </div>
+
+              <div class="uva-banner" *ngIf="selectedWeek.status === 'submitted'">
+                <i class="ri-lock-line"></i>
+                Locked until a manager responds.
+              </div>
+
+              <div class="uva-daily" *ngIf="showDailyBreakdown && weekDaysCache.length">
+                <div class="uva-daily-cell" *ngFor="let day of weekDaysCache">
+                  <span>{{ day.short }}</span>
+                  <strong>{{ durationLabel(dayTotals[day.date] || 0) }}</strong>
+                </div>
+              </div>
+
+              <app-activity-week-tree
+                [entries]="weekEntries"
+                [categories]="categories"
+                [readonly]="!isWeekEditable()"
+                (editEntry)="openEditModal($event)"
+                (deleteEntry)="deleteEntry($event)"
+                (editWeek)="editWeek(selectedWeek)"
+              ></app-activity-week-tree>
+            </ng-container>
+          </div>
+        </article>
+
+        <div class="uva-more" *ngIf="hasMore || loadingMore">
+          <button type="button" class="uva-btn uva-btn-ghost" (click)="loadMoreWeeks()" [disabled]="loadingMore">
+            {{ loadingMore ? 'Loading…' : 'Load older weeks' }}
+          </button>
+        </div>
+      </ng-container>
+    </section>
+  </div>
+</div>
+
+<div class="modal-backdrop" *ngIf="showEditModal" (click)="closeEditModal()">
+  <div class="modal-panel" (click)="$event.stopPropagation()">
+    <header class="modal-header">
+      <h2>Edit Time Entry</h2>
+      <button type="button" class="modal-close" (click)="closeEditModal()">×</button>
+    </header>
+
+    <div class="modal-body">
+      <div *ngIf="editError" class="alert alert-danger py-2 mb-3 fs-14">{{ editError }}</div>
+
+      <div class="uva-modal-grid">
+        <label class="uva-modal-field">
+          <span>Project</span>
+          <select [(ngModel)]="editForm.projectId">
+            <option value="">Select Project</option>
+            <option *ngFor="let p of projects" [value]="p.id">{{ p.title | titlecase }}</option>
+          </select>
+        </label>
+
+        <label class="uva-modal-field">
+          <span>Activity Category</span>
+          <select [(ngModel)]="editForm.activityCategoryId">
+            <option value="">Select Category</option>
+            <option *ngFor="let c of categories" [value]="c.id">{{ c.name }}</option>
+          </select>
+        </label>
+
+        <label class="uva-modal-field">
+          <span>Budget / Phase</span>
+          <select [(ngModel)]="editForm.budgetId">
+            <option value="">No specific budget</option>
+            <option *ngFor="let b of editBudgets" [value]="b.id">{{ b.name }}</option>
+          </select>
+        </label>
+
+        <label class="uva-modal-field">
+          <span>Task</span>
+          <input type="text" [(ngModel)]="editForm.taskId" placeholder="Task ID">
+        </label>
+
+        <label class="uva-modal-field">
+          <span>Date</span>
+          <input type="date" [(ngModel)]="editForm.entryDate">
+        </label>
+
+        <div class="uva-modal-time">
+          <label class="uva-modal-field small">
+            <span>Hours</span>
+            <input type="number" [(ngModel)]="editForm.hours" min="0" max="23">
+          </label>
+          <label class="uva-modal-field small">
+            <span>Minutes</span>
+            <input type="number" [(ngModel)]="editForm.minutes" min="0" max="59" step="15">
+          </label>
+        </div>
+      </div>
+
+      <label class="uva-modal-field full">
+        <span>Notes</span>
+        <textarea rows="4" [(ngModel)]="editForm.description" placeholder="What did you work on?"></textarea>
+      </label>
+    </div>
+
+    <footer class="modal-footer">
+      <button type="button" class="uva-btn uva-btn-ghost" (click)="closeEditModal()">Cancel</button>
+      <button type="button" class="uva-btn uva-btn-primary" [disabled]="editSaving" (click)="saveEdit()">
+        <span *ngIf="editSaving" class="spinner-border spinner-border-sm me-1"></span>
+        {{ editSaving ? 'Saving...' : 'Save Changes' }}
+      </button>
+    </footer>
+  </div>
+</div>

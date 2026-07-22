@@ -5,10 +5,23 @@ const {
   ENTRY_SOURCES,
 } = require('../constants/activity.constants');
 
+function isValidWeekStatusFilter(value) {
+  const statuses = String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
+  if (!statuses.length) throw new Error('Invalid week status');
+  if (statuses.includes('all')) {
+    if (statuses.length === 1) return true;
+    throw new Error('The all status cannot be combined with other statuses');
+  }
+  if (!statuses.every((status) => WEEK_STATUSES.includes(status))) {
+    throw new Error('Invalid week status');
+  }
+  return true;
+}
+
 const weekListRules = [
   query('user_id').optional().isString(),
   query('userId').optional().isString(),
-  query('status').optional().isIn([...WEEK_STATUSES, 'all']),
+  query('status').optional().custom(isValidWeekStatusFilter),
   query('week_start').optional().isISO8601(),
   query('weekStartDate').optional().isISO8601(),
   query('startDate').optional().isISO8601(),

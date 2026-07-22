@@ -1,0 +1,9 @@
+<div class="tree" *ngIf="days.length;else empty">
+ <section class="day" *ngFor="let day of days;trackBy:track"><header><span><i class="ri-calendar-check-line"></i><strong>{{day.label}}</strong></span><b>{{duration(day.minutes)}}</b></header>
+  <div class="project" *ngFor="let project of day.projects;trackBy:track"><div class="project-row"><span><i class="ri-folder-3-line"></i><strong>{{project.name}}</strong></span><b>{{duration(project.minutes)}}</b></div>
+   <div class="task" *ngFor="let task of project.tasks;trackBy:track"><div class="task-row"><span><i class="ri-git-branch-line"></i>{{task.name}}</span><b>{{duration(task.minutes)}}</b></div>
+    <div class="entry" *ngFor="let entry of task.entries"><span class="entry-line"></span><div><strong>{{entry.description||entry.activity_category_name||'Time entry'}}</strong><small><span *ngIf="entry.start_time&&entry.end_time">{{time(entry.start_time)}} – {{time(entry.end_time)}} · </span>{{entry.entry_type==='clock'?'Timer':'Manual entry'}}<span *ngIf="entry.activity_category_name"> · {{entry.activity_category_name}}</span></small></div><b>{{duration(entry.duration_minutes)}}</b></div>
+   </div>
+  </div>
+ </section>
+</div><ng-template #empty><div class="tree-empty"><i class="ri-time-line"></i><span>No activity entries were recorded for this week.</span></div></ng-template>

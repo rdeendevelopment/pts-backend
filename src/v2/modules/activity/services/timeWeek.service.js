@@ -75,7 +75,11 @@ function applyWeekListDateFilters(filters, query) {
 
 async function listWeeks(query, req) {
   const filters = buildActivityUserScope(req, query);
-  if (query.status && query.status !== 'all') filters.status = query.status;
+  if (query.status && query.status !== 'all') {
+    const statuses = String(query.status).split(',').map((value) => value.trim()).filter(Boolean);
+    if (statuses.length > 1) filters.statuses = statuses;
+    else filters.status = statuses[0];
+  }
   applyWeekListDateFilters(filters, query);
 
   const page = Math.max(1, Number.parseInt(String(query.page || '1'), 10) || 1);
