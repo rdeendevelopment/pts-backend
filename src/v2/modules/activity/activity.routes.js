@@ -22,6 +22,8 @@ const {
   validatePreviewRules,
   timerStartRules,
   timerIdRules,
+  timerMutationRules,
+  timerSwitchRules,
   timerCorrectionRules,
   projectIdParamRules,
   projectSummaryRules,
@@ -58,6 +60,14 @@ router.post('/weeks/:id/submit', canViewActivity, weekIdRules, validateRequest, 
     next(err);
   }
 }, weekController.submitWeek);
+router.post('/weeks/:id/unsubmit', canViewActivity, weekIdRules, validateRequest, (req, res, next) => {
+  try {
+    assertObjectId(req.params.id, 'id');
+    next();
+  } catch (err) {
+    next(err);
+  }
+}, weekController.unsubmitWeek);
 router.post('/weeks/:id/approve', canManageActivity, weekIdRules, validateRequest, (req, res, next) => {
   try {
     assertObjectId(req.params.id, 'id');
@@ -105,7 +115,8 @@ router.delete('/time-entries/:id', canViewActivity, entryIdRules, validateReques
 router.post('/validate-time-entry', canViewActivity, validatePreviewRules, validateRequest, entryController.validateTimeEntry);
 
 router.post('/timers/start', canViewActivity, timerStartRules, validateRequest, timerController.startTimer);
-router.post('/timers/:id/stop', canViewActivity, timerIdRules, validateRequest, (req, res, next) => {
+router.post('/timers/switch', canViewActivity, timerSwitchRules, validateRequest, timerController.switchTimer);
+router.post('/timers/:id/stop', canViewActivity, timerMutationRules, validateRequest, (req, res, next) => {
   try {
     assertObjectId(req.params.id, 'id');
     next();

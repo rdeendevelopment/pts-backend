@@ -43,15 +43,26 @@ async function dropLegacyIndexes(collection) {
 
 async function migrateActiveTimerIndexes() {
   const { getActiveTimerModel } = require('../models/activeTimer.model');
+  const { getTimeEntryModel } = require('../models/timeEntry.model');
   const ActiveTimer = getActiveTimerModel();
   const collection = ActiveTimer.collection;
 
   await backfillTaskKeys(ActiveTimer);
+  await ActiveTimer.updateMany(
+    { revision: { $exists: false } },
+    { $set: { revision: 0 } },
+  );
+  await ActiveTimer.updateMany(
+    { reviewThresholdSeconds: { $exists: false } },
+    { $set: { reviewThresholdSeconds: 4 * 60 * 60 } },
+  );
   await dropLegacyIndexes(collection);
 
   await ActiveTimer.createIndexes();
+  await getTimeEntryModel().createIndexes();
   console.log('[TIMER INDEX] created running unique index');
   console.log('[TIMER INDEX] created context unique index');
+  console.log('[TIMER INDEX] created idempotency and timer-entry unique indexes');
   console.log('[TIMER INDEX] migration complete');
 }
 

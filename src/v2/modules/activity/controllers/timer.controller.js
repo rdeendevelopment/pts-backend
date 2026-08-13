@@ -36,6 +36,17 @@ async function stopTimer(req, res) {
   return sendSuccess(res, data);
 }
 
+async function switchTimer(req, res) {
+  const body = { ...req.body };
+  body.currentTimerId = assertObjectId(body.currentTimerId, 'currentTimerId');
+  body.projectId = assertObjectId(body.projectId, 'projectId');
+  body.workCategoryId = assertObjectId(body.workCategoryId, 'workCategoryId');
+  if (body.budgetId) body.budgetId = assertObjectId(body.budgetId, 'budgetId');
+  if (body.clientId) body.clientId = assertObjectId(body.clientId, 'clientId');
+  const data = await timerService.switchTimer(body, req.v2Auth.accountId, req);
+  return sendSuccess(res, data, { status: 201 });
+}
+
 async function correctTimer(req, res) {
   const timerId = assertObjectId(req.params.id, 'id');
   const data = await timerService.correctTimer(timerId, req.body, req.v2Auth.accountId, req);
@@ -80,6 +91,7 @@ module.exports = {
   heartbeatTimer: asyncHandler(heartbeatTimer),
   resumeTimer: asyncHandler(resumeTimer),
   stopTimer: asyncHandler(stopTimer),
+  switchTimer: asyncHandler(switchTimer),
   correctTimer: asyncHandler(correctTimer),
   discardTimer: asyncHandler(discardTimer),
   cancelTimer: asyncHandler(cancelTimer),

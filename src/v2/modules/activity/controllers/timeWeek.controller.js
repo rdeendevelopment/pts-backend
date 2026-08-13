@@ -31,6 +31,12 @@ async function submitWeek(req, res) {
   return sendSuccess(res, data);
 }
 
+async function unsubmitWeek(req, res) {
+  const weekId = assertObjectId(req.params.id, 'id');
+  const data = await timeWeekService.unsubmitWeek(weekId, req.v2Auth.accountId, req);
+  return sendSuccess(res, data);
+}
+
 async function approveWeek(req, res) {
   const weekId = assertObjectId(req.params.id, 'id');
   const data = await timeWeekService.approveWeek(weekId, req.v2Auth.accountId, req);
@@ -53,6 +59,7 @@ module.exports = {
   getWeekById: asyncHandler(getWeekById),
   createWeek: asyncHandler(createWeek),
   submitWeek: asyncHandler(submitWeek),
+  unsubmitWeek: asyncHandler(unsubmitWeek),
   approveWeek: asyncHandler(approveWeek),
   rejectWeek: asyncHandler(rejectWeek),
 };

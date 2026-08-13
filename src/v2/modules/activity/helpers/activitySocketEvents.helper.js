@@ -90,6 +90,17 @@ function emitActivityWeekSubmitted(week, projectIds = []) {
   );
 }
 
+function emitActivityWeekUnsubmitted(week, projectIds = []) {
+  const payload = buildWeekSubmitPayload(week);
+  if (!payload) return;
+  emitToUserAndProjects(
+    payload.userId,
+    projectIds,
+    SERVER_EVENTS.ACTIVITY_WEEK_UNSUBMITTED,
+    payload,
+  );
+}
+
 function emitActivityWeekApproved(week, projectIds = []) {
   const payload = buildWeekApprovePayload(week);
   if (!payload) return;
@@ -163,6 +174,7 @@ module.exports = {
   buildWeekRejectPayload,
   buildTimerPayload,
   emitActivityWeekSubmitted,
+  emitActivityWeekUnsubmitted,
   emitActivityWeekApproved,
   emitActivityWeekRejected,
   emitActivityEntryCreated,

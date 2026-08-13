@@ -8,6 +8,7 @@ const timeEntryService = require('./timeEntry.service');
 const timeWeekService = require('./timeWeek.service');
 const { toActiveTimerDto } = require('../dto/activity.dto');
 const activitySocketEvents = require('../helpers/activitySocketEvents.helper');
+const v2Database = require('../../../database/connection');
 const {
   buildTimerContextFields,
   isDuplicateKeyError,
@@ -17,8 +18,8 @@ function getMaxTimerMinutes() {
   return Math.min(480, Number(env.v2.maxTimerMinutes || MAX_TIMER_MINUTES));
 }
 
-function getAbandonedTimerMinutes() {
-  return Math.max(1, Number(env.v2.abandonedTimerMinutes || 60));
+function getTimerReviewSeconds() {
+  return Math.max(60, Number(env.v2.timerReviewMinutes || 240) * 60);
 }
 
 function getTimerLimitSeconds(timer) {
@@ -69,6 +70,22 @@ function mapDuplicateKeyToConflict(err, context = {}) {
     status: 409,
     code: activityErrorCodes.ACTIVITY_TIMER_CONFLICT,
     details: context,
+  });
+}
+
+function activeTimerConflict(timer, message = 'A timer is already running') {
+  return new AppError(message, {
+    status: 409,
+    code: activityErrorCodes.ACTIVE_TIMER_EXISTS,
+    details: { canonicalTimer: toActiveTimerDto(timer) },
+  });
+}
+
+function staleTimerConflict(timer) {
+  return new AppError('Timer state changed on another client', {
+    status: 409,
+    code: activityErrorCodes.STALE_TIMER_VERSION,
+    details: { canonicalTimer: toActiveTimerDto(timer) },
   });
 }
 
@@ -139,17 +156,12 @@ async function freezeOverdueTimers(at = new Date()) {
   let frozen = 0;
   for (const timer of timers) {
     const elapsedSeconds = getElapsedSeconds(timer, at);
-    const lastHeartbeatAt = timer.lastHeartbeatAt || timer.startedAt;
-    const heartbeatAge = at.getTime() - new Date(lastHeartbeatAt).getTime();
     let pauseAt = null;
     let reason = null;
     if (elapsedSeconds >= getTimerLimitSeconds(timer)) {
       const segmentAllowance = Math.max(0, getTimerLimitSeconds(timer) - Number(timer.accumulatedSeconds || 0));
       pauseAt = new Date(new Date(timer.startedAt).getTime() + segmentAllowance * 1000);
       reason = timer.limitReason || 'maximum_duration';
-    } else if (heartbeatAge >= getAbandonedTimerMinutes() * 60 * 1000) {
-      pauseAt = new Date(lastHeartbeatAt);
-      reason = 'heartbeat_timeout';
     }
     if (!pauseAt) continue;
     const updated = await pauseRunningTimerAt(timer, pauseAt, null, reason);
@@ -168,6 +180,11 @@ async function listPausedTimersForUser(userId) {
 
 async function startTimer(payload, accountId, req) {
   const userId = req.v2Activity.userId;
+  const idempotencyKey = String(payload.idempotencyKey || '').trim() || null;
+  if (idempotencyKey) {
+    const prior = await activeTimerRepository.findByStartIdempotencyKey(userId, idempotencyKey);
+    if (prior) return toActiveTimerDto(prior);
+  }
   const context = buildTimerContextFields({
     clientId: payload.clientId,
     projectId: payload.projectId,
@@ -178,21 +195,14 @@ async function startTimer(payload, accountId, req) {
   const actionable = await activeTimerRepository.findActionableByUserId(userId);
   if (actionable) {
     const needsCorrection = actionable.status === 'needs_correction';
-    throw new AppError(
-      needsCorrection ? 'Correct the frozen timer before starting another timer' : 'A timer is already running',
-      {
-      status: 409,
-      code: needsCorrection
-        ? activityErrorCodes.ACTIVITY_TIMER_MAX_DURATION_EXCEEDED
-        : activityErrorCodes.ACTIVITY_TIMER_ALREADY_RUNNING,
-      details: {
-        timerId: String(actionable._id),
-        timerStatus: actionable.status,
-        projectId: String(actionable.projectId),
-        workCategoryId: String(actionable.workCategoryId),
-        taskId: actionable.taskId ? String(actionable.taskId) : null,
-      },
-    });
+    if (needsCorrection) {
+      throw new AppError('Correct the frozen timer before starting another timer', {
+        status: 409,
+        code: activityErrorCodes.ACTIVITY_TIMER_MAX_DURATION_EXCEEDED,
+        details: { canonicalTimer: toActiveTimerDto(actionable) },
+      });
+    }
+    throw activeTimerConflict(actionable);
   }
 
   const pausedSameContext = await activeTimerRepository.findPausedByContext(userId, context);
@@ -212,7 +222,7 @@ async function startTimer(payload, accountId, req) {
 
   const week = await timeWeekService.getOrCreateWeek(userId, new Date(), accountId);
 
-  const validation = await timeValidationService.validateTimerStart({
+  const validation = await timeValidationService.validateTimeEntry({
     projectId: payload.projectId,
     userId,
     assignmentId: payload.assignmentId,
@@ -220,7 +230,11 @@ async function startTimer(payload, accountId, req) {
     workCategoryId: payload.workCategoryId,
     entryDate: new Date(),
     timeWeek: week,
-  }, req);
+    minutes: 1,
+    source: 'timer',
+    throwOnError: true,
+    req,
+  });
 
   const assignment = await require('../../projects').getAssignmentForUser(payload.projectId, userId);
   const resolvedBudgetId = payload.budgetId
@@ -245,21 +259,27 @@ async function startTimer(payload, accountId, req) {
       sessionStartedAt: now,
       accumulatedSeconds: 0,
       maxAccumulatedSeconds: timerLimit.maxAccumulatedSeconds,
+      reviewThresholdSeconds: getTimerReviewSeconds(),
       limitReason: timerLimit.limitReason,
       lastHeartbeatAt: now,
       autoPauseReason: null,
       pausedAt: null,
       description: payload.description || null,
+      startIdempotencyKey: idempotencyKey,
+      revision: 0,
       status: 'running',
       createdBy: accountId,
       updatedBy: accountId,
     });
   } catch (err) {
-    mapDuplicateKeyToConflict(err, {
-      projectId: String(context.projectId),
-      workCategoryId: String(context.workCategoryId),
-      taskKey: context.taskKey,
-    });
+    if (!isDuplicateKeyError(err)) throw err;
+    if (idempotencyKey) {
+      const prior = await activeTimerRepository.findByStartIdempotencyKey(userId, idempotencyKey);
+      if (prior) return toActiveTimerDto(prior);
+    }
+    const canonical = await activeTimerRepository.findRunningByUserId(userId);
+    if (canonical) throw activeTimerConflict(canonical);
+    mapDuplicateKeyToConflict(err);
   }
 
   const timerDto = toActiveTimerDto(timer);
@@ -356,7 +376,7 @@ async function resumeTimer(timerId, accountId, req) {
   }
 
   const week = await timeWeekService.getOrCreateWeek(userId, new Date(), accountId);
-  const validation = await timeValidationService.validateTimerStart({
+  const validation = await timeValidationService.validateTimeEntry({
     projectId: timer.projectId,
     userId,
     assignmentId: timer.assignmentId,
@@ -364,7 +384,11 @@ async function resumeTimer(timerId, accountId, req) {
     workCategoryId: timer.workCategoryId,
     entryDate: new Date(),
     timeWeek: week,
-  }, req);
+    minutes: 1,
+    source: 'timer',
+    throwOnError: true,
+    req,
+  });
   const timerLimit = resolveTimerLimit(validation, Number(timer.accumulatedSeconds || 0));
 
   const now = new Date();
@@ -378,6 +402,7 @@ async function resumeTimer(timerId, accountId, req) {
         pausedAt: null,
         lastHeartbeatAt: now,
         maxAccumulatedSeconds: timerLimit.maxAccumulatedSeconds,
+        reviewThresholdSeconds: timer.reviewThresholdSeconds || getTimerReviewSeconds(),
         limitReason: timerLimit.limitReason,
         autoPauseReason: null,
         updatedBy: accountId,
@@ -395,85 +420,76 @@ async function resumeTimer(timerId, accountId, req) {
 }
 
 async function stopTimer(timerId, accountId, req) {
-  const timer = await assertTimerOwner(await activeTimerRepository.findById(timerId), req);
+  let timer = await assertTimerOwner(await activeTimerRepository.findById(timerId), req);
 
+  if (timer.status === 'stopped' || timer.status === 'cancelled') {
+    return finalizeStoppedTimer(timer, accountId);
+  }
+  if (timer.status === 'needs_correction') {
+    return { needsCorrection: true, timer: toActiveTimerDto(timer), maxMinutes: getMaxTimerMinutes() };
+  }
   if (timer.status !== 'running' && timer.status !== 'paused') {
-    if (timer.status === 'needs_correction') {
-      return {
-        needsCorrection: true,
-        timer: toActiveTimerDto(timer),
-        maxMinutes: getMaxTimerMinutes(),
-      };
-    }
     throw new AppError('Timer is not active', {
       status: 409,
       code: activityErrorCodes.ACTIVITY_TIMER_NOT_RUNNING,
     });
   }
 
-  if (timer.status === 'stopped') {
-    throw new AppError('Timer already finalized', {
-      status: 409,
-      code: activityErrorCodes.ACTIVITY_TIMER_NOT_RUNNING,
-    });
+  const expectedVersion = req.body?.expectedVersion;
+  if (expectedVersion !== undefined && Number(expectedVersion) !== Number(timer.revision || 0)) {
+    throw staleTimerConflict(timer);
   }
 
   const stoppedAt = new Date();
   const elapsedSeconds = Math.min(getElapsedSeconds(timer, stoppedAt), getTimerLimitSeconds(timer));
   const elapsedMinutes = Math.ceil(elapsedSeconds / 60);
-  const maxMinutes = getMaxTimerMinutes();
-
-  if (elapsedMinutes > maxMinutes) {
-    const frozen = await freezeForCorrection(timer, stoppedAt, accountId);
-    const frozenDto = toActiveTimerDto(frozen);
-    activitySocketEvents.emitActivityTimerStarted(req.v2Activity.userId, frozenDto);
-    return {
-      needsCorrection: true,
-      timer: frozenDto,
-      maxMinutes,
-      elapsedMinutes,
-    };
-  }
-
-  const expectedStatus = timer.status;
-
-  if (elapsedMinutes <= 0) {
-    await activeTimerRepository.updateTimer(timer._id, {
-      status: 'cancelled',
-      stoppedAt,
-      updatedBy: accountId,
-    }, null, { expectedStatus });
-    return { cancelled: true, id: String(timer._id) };
-  }
-
   const description = req.body?.description ?? timer.description;
-  const sessionStart = timer.sessionStartedAt || timer.startedAt;
-
-  const entry = await timeEntryService.createEntry({
-    projectId: timer.projectId,
-    assignmentId: timer.assignmentId,
-    budgetId: timer.budgetId,
-    taskId: timer.taskId,
-    workCategoryId: timer.workCategoryId,
-    entryDate: stoppedAt,
-    startTime: sessionStart,
-    endTime: stoppedAt,
-    minutes: elapsedMinutes,
-    description,
-    source: 'timer',
-  }, accountId, req);
-
-  const stoppedTimerDoc = await activeTimerRepository.updateTimer(
+  const nextStatus = elapsedMinutes <= 0 ? 'cancelled' : 'stopped';
+  const stopped = await activeTimerRepository.updateTimer(
     timer._id,
-    { status: 'stopped', stoppedAt, description, updatedBy: accountId },
+    {
+      status: nextStatus,
+      stoppedAt,
+      accumulatedSeconds: Math.max(0, elapsedSeconds),
+      description,
+      stopIdempotencyKey: String(req.body?.idempotencyKey || '').trim() || timer.stopIdempotencyKey || null,
+      updatedBy: accountId,
+    },
     null,
-    { expectedStatus },
+    {
+      expectedStatus: timer.status,
+      expectedRevision: expectedVersion !== undefined ? expectedVersion : null,
+    },
   );
 
-  const stoppedTimer = toActiveTimerDto(stoppedTimerDoc);
-  activitySocketEvents.emitActivityTimerStopped(req.v2Activity.userId, stoppedTimer);
+  if (!stopped) {
+    timer = await assertTimerOwner(await activeTimerRepository.findById(timerId), req);
+    if (timer.status === 'stopped' || timer.status === 'cancelled') {
+      return finalizeStoppedTimer(timer, accountId);
+    }
+    throw staleTimerConflict(timer);
+  }
 
-  return { timer: stoppedTimer, entry };
+  activitySocketEvents.emitActivityTimerStopped(req.v2Activity.userId, toActiveTimerDto(stopped));
+  return finalizeStoppedTimer(stopped, accountId);
+}
+
+async function finalizeStoppedTimer(timer, accountId) {
+  if (timer.status === 'cancelled' || Number(timer.accumulatedSeconds || 0) <= 0) {
+    return { cancelled: true, id: String(timer._id), timer: toActiveTimerDto(timer) };
+  }
+  try {
+    const entry = await timeEntryService.createFinalizedTimerEntry(timer, accountId);
+    return { timer: toActiveTimerDto(timer), entry };
+  } catch (err) {
+    const warning = `Timer stopped safely but its entry requires review: ${err.message}`;
+    const reviewed = await activeTimerRepository.updateTimer(timer._id, {
+      finalizationNeedsReview: true,
+      finalizationWarning: warning,
+      updatedBy: accountId,
+    }, null, { expectedStatus: 'stopped' });
+    return { timer: toActiveTimerDto(reviewed || timer), entry: null, needsReview: true, warning };
+  }
 }
 
 async function heartbeatTimer(timerId, accountId, req) {
@@ -481,16 +497,107 @@ async function heartbeatTimer(timerId, accountId, req) {
   if (timer.status !== 'running') return toActiveTimerDto(timer);
 
   const now = new Date();
-  if (getElapsedSeconds(timer, now) >= getTimerLimitSeconds(timer)) {
-    const paused = await pauseRunningTimerAt(timer, now, accountId, timer.limitReason || 'maximum_duration');
-    activitySocketEvents.emitActivityTimerStarted(req.v2Activity.userId, toActiveTimerDto(paused));
-    return toActiveTimerDto(paused);
-  }
   const updated = await activeTimerRepository.updateTimer(timer._id, {
     lastHeartbeatAt: now,
     updatedBy: accountId,
-  }, null, { expectedStatus: 'running' });
+  }, null, { expectedStatus: 'running', incrementRevision: false });
   return toActiveTimerDto(updated || timer);
+}
+
+async function switchTimer(payload, accountId, req) {
+  const userId = req.v2Activity.userId;
+  const current = await assertTimerOwner(
+    await activeTimerRepository.findById(payload.currentTimerId),
+    req,
+  );
+  if (current.status !== 'running' && current.status !== 'paused') {
+    if (current.status === 'stopped') {
+      const canonical = await activeTimerRepository.findRunningByUserId(userId);
+      if (canonical) return { stoppedTimer: toActiveTimerDto(current), timer: toActiveTimerDto(canonical) };
+    }
+    throw new AppError('Current timer is no longer active', {
+      status: 409,
+      code: activityErrorCodes.STALE_TIMER_VERSION,
+      details: { canonicalTimer: toActiveTimerDto(current) },
+    });
+  }
+  if (
+    payload.expectedVersion !== undefined
+    && Number(payload.expectedVersion) !== Number(current.revision || 0)
+  ) {
+    throw staleTimerConflict(current);
+  }
+
+  const context = buildTimerContextFields(payload);
+  const week = await timeWeekService.getOrCreateWeek(userId, new Date(), accountId);
+  const validation = await timeValidationService.validateTimeEntry({
+    projectId: payload.projectId,
+    userId,
+    assignmentId: payload.assignmentId,
+    budgetId: payload.budgetId,
+    workCategoryId: payload.workCategoryId,
+    entryDate: new Date(),
+    timeWeek: week,
+    minutes: 1,
+    source: 'timer',
+    throwOnError: true,
+    req,
+  });
+  const assignment = await require('../../projects').getAssignmentForUser(payload.projectId, userId);
+  const at = new Date();
+  const elapsedSeconds = Math.min(getElapsedSeconds(current, at), getTimerLimitSeconds(current));
+  const timerLimit = resolveTimerLimit(validation);
+  const idempotencyKey = String(payload.idempotencyKey || '').trim() || null;
+  let stopped;
+  let started;
+  const session = await v2Database.getV2Connection().startSession();
+  try {
+    await session.withTransaction(async () => {
+      stopped = await activeTimerRepository.updateTimer(current._id, {
+        status: elapsedSeconds > 0 ? 'stopped' : 'cancelled',
+        stoppedAt: at,
+        accumulatedSeconds: Math.max(0, elapsedSeconds),
+        description: payload.previousDescription ?? current.description,
+        updatedBy: accountId,
+      }, session, {
+        expectedStatus: current.status,
+        expectedRevision: payload.expectedVersion !== undefined ? payload.expectedVersion : null,
+      });
+      if (!stopped) throw staleTimerConflict(current);
+
+      started = await activeTimerRepository.createTimer({
+        clientId: context.clientId,
+        projectId: context.projectId,
+        assignmentId: assignment._id,
+        userId,
+        budgetId: payload.budgetId || validation?.budget?._id || null,
+        taskId: context.taskId,
+        taskKey: context.taskKey,
+        workCategoryId: context.workCategoryId,
+        startedAt: at,
+        sessionStartedAt: at,
+        accumulatedSeconds: 0,
+        maxAccumulatedSeconds: timerLimit.maxAccumulatedSeconds,
+        reviewThresholdSeconds: getTimerReviewSeconds(),
+        limitReason: timerLimit.limitReason,
+        lastHeartbeatAt: at,
+        description: payload.description || null,
+        startIdempotencyKey: idempotencyKey,
+        revision: 0,
+        status: 'running',
+        createdBy: accountId,
+        updatedBy: accountId,
+      }, session);
+    });
+  } finally {
+    await session.endSession();
+  }
+
+  const finalized = await finalizeStoppedTimer(stopped, accountId);
+  const timerDto = toActiveTimerDto(started);
+  activitySocketEvents.emitActivityTimerStopped(userId, toActiveTimerDto(stopped));
+  activitySocketEvents.emitActivityTimerStarted(userId, timerDto);
+  return { stoppedTimer: finalized.timer, entry: finalized.entry, timer: timerDto, switchedAt: at };
 }
 
 async function correctTimer(timerId, payload, accountId, req) {
@@ -606,6 +713,7 @@ module.exports = {
   startTimer,
   pauseTimer,
   heartbeatTimer,
+  switchTimer,
   resumeTimer,
   stopTimer,
   correctTimer,

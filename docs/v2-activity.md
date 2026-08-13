@@ -181,7 +181,7 @@ Days with no logged time appear with `totalMinutes: 0` and empty `projects`.
 | `PTS_V2_BUSINESS_TIMEZONE` | `UTC` | Week/day/month boundary calculations |
 | `PTS_V2_WEEK_START_DAY` | `monday` | Week window start (`monday` or `sunday`) |
 | `PTS_V2_MAX_TIMER_MINUTES` | `480` | Max timer duration, capped at 8h |
-| `PTS_V2_ABANDONED_TIMER_MINUTES` | `60` | Pause a running timer after this many minutes without a heartbeat |
+| `PTS_V2_TIMER_REVIEW_MINUTES` | `240` | Continuous tracking threshold that marks activity for review without blocking Stop |
 
 ---
 

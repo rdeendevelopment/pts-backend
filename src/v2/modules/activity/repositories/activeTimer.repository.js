@@ -13,6 +13,12 @@ async function findRunningByUserId(userId) {
   return ActiveTimer.findOne({ userId, status: 'running', isDeleted: false }).exec();
 }
 
+async function findByStartIdempotencyKey(userId, startIdempotencyKey) {
+  if (!startIdempotencyKey) return null;
+  const ActiveTimer = getActiveTimerModel();
+  return ActiveTimer.findOne({ userId, startIdempotencyKey, isDeleted: false }).exec();
+}
+
 async function findActionableByUserId(userId) {
   const ActiveTimer = getActiveTimerModel();
   return ActiveTimer.findOne({
@@ -57,15 +63,23 @@ async function createTimer(payload, session = null) {
   return docs[0];
 }
 
-async function updateTimer(timerId, payload, session = null, { expectedStatus = null } = {}) {
+async function updateTimer(
+  timerId,
+  payload,
+  session = null,
+  { expectedStatus = null, expectedRevision = null, incrementRevision = true } = {},
+) {
   const ActiveTimer = getActiveTimerModel();
   const query = { _id: timerId, isDeleted: false };
   if (expectedStatus) query.status = expectedStatus;
+  if (expectedRevision !== null && expectedRevision !== undefined) query.revision = Number(expectedRevision);
 
   const options = { returnDocument: 'after', runValidators: true };
   if (session) options.session = session;
 
-  return ActiveTimer.findOneAndUpdate(query, { $set: payload }, options).exec();
+  const update = { $set: payload };
+  if (incrementRevision) update.$inc = { revision: 1 };
+  return ActiveTimer.findOneAndUpdate(query, update, options).exec();
 }
 
 async function countRunningForProject(projectId) {
@@ -80,6 +94,7 @@ async function countRunningForProject(projectId) {
 module.exports = {
   findById,
   findRunningByUserId,
+  findByStartIdempotencyKey,
   findActionableByUserId,
   findPausedByContext,
   findOpenByContext,

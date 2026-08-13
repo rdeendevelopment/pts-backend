@@ -28,6 +28,9 @@ function toTimeEntryDto(entry) {
   const doc = entry.toObject ? entry.toObject() : entry;
   return {
     id: String(doc._id),
+    timerId: doc.timerId ? String(doc.timerId) : null,
+    needsReview: Boolean(doc.needsReview),
+    reviewReason: doc.reviewReason || null,
     timeWeekId: String(doc.timeWeekId),
     projectId: String(doc.projectId),
     projectName: doc.projectName || null,
@@ -57,6 +60,13 @@ function toTimeEntryDto(entry) {
 function toActiveTimerDto(timer) {
   if (!timer) return null;
   const doc = timer.toObject ? timer.toObject() : timer;
+  const serverTime = new Date();
+  const baseSeconds = Number(doc.accumulatedSeconds || 0);
+  const segmentStart = new Date(doc.startedAt).getTime();
+  const elapsedSeconds = doc.status === 'running' && Number.isFinite(segmentStart)
+    ? baseSeconds + Math.max(0, Math.floor((serverTime.getTime() - segmentStart) / 1000))
+    : baseSeconds;
+  const reviewThresholdSeconds = Number(doc.reviewThresholdSeconds || 4 * 60 * 60);
   return {
     id: String(doc._id),
     clientId: doc.clientId ? String(doc.clientId) : null,
@@ -71,6 +81,10 @@ function toActiveTimerDto(timer) {
     sessionStartedAt: doc.sessionStartedAt || doc.startedAt,
     accumulatedSeconds: doc.accumulatedSeconds || 0,
     maxAccumulatedSeconds: doc.maxAccumulatedSeconds || 8 * 60 * 60,
+    reviewThresholdSeconds,
+    needsReview: elapsedSeconds >= reviewThresholdSeconds,
+    reviewReason: elapsedSeconds >= reviewThresholdSeconds ? 'continuous_tracking_threshold_exceeded' : null,
+    serverTime,
     limitReason: doc.limitReason || 'maximum_duration',
     lastHeartbeatAt: doc.lastHeartbeatAt || null,
     autoPauseReason: doc.autoPauseReason || null,
@@ -80,6 +94,9 @@ function toActiveTimerDto(timer) {
     stoppedAt: doc.stoppedAt,
     description: doc.description,
     status: doc.status,
+    revision: Number(doc.revision || 0),
+    finalizationNeedsReview: Boolean(doc.finalizationNeedsReview),
+    finalizationWarning: doc.finalizationWarning || null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

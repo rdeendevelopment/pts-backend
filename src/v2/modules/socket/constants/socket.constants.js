@@ -41,6 +41,7 @@ const SERVER_EVENTS = {
   TASK_COMMENT_CREATED: 'task.comment.created',
   TASK_WORKFLOW_UPDATED: 'task.workflow.updated',
   ACTIVITY_WEEK_SUBMITTED: 'activity.week.submitted',
+  ACTIVITY_WEEK_UNSUBMITTED: 'activity.week.unsubmitted',
   ACTIVITY_WEEK_APPROVED: 'activity.week.approved',
   ACTIVITY_WEEK_REJECTED: 'activity.week.rejected',
   ACTIVITY_ENTRY_CREATED: 'activity.entry.created',

@@ -325,6 +325,61 @@ async function submitWeek(weekId, accountId, req) {
   return result;
 }
 
+async function unsubmitWeek(weekId, accountId, req) {
+  const week = await getWeekOrThrow(weekId);
+  assertOwnUserOrManage(req, week.userId);
+
+  if (week.status !== 'submitted') {
+    throw new AppError('Only a submitted week awaiting approval can be unsubmitted', {
+      status: 409,
+      code: activityErrorCodes.ACTIVITY_WEEK_INVALID_STATUS,
+      details: { status: week.status },
+    });
+  }
+
+  await counterConsumptionService.withOptionalTransaction(async (session) => {
+    await counterConsumptionService.reverseWeekEntries(week._id, session);
+    await timeEntryRepository.updateManyByWeek(
+      week._id,
+      {
+        status: 'draft',
+        isLocked: false,
+        lockedAt: null,
+        approvedAt: null,
+        approvedBy: null,
+        updatedBy: accountId,
+      },
+      session,
+      { statuses: ['submitted'] },
+    );
+    const updated = await timeWeekRepository.updateWeek(
+      week._id,
+      {
+        status: 'draft',
+        submittedAt: null,
+        submittedBy: null,
+        lockedAt: null,
+        updatedBy: accountId,
+      },
+      session,
+      { expectedStatus: 'submitted' },
+    );
+    if (!updated) {
+      throw new AppError('Week status changed before it could be unsubmitted', {
+        status: 409,
+        code: activityErrorCodes.ACTIVITY_WEEK_INVALID_STATUS,
+      });
+    }
+    await timeWeekRepository.recalculateWeekTotals(week._id, session);
+  });
+
+  const entries = await timeEntryRepository.listEntries({ timeWeekId: week._id });
+  const result = await getWeekById(weekId, req);
+  const projectIds = [...new Set(entries.map((entry) => String(entry.projectId)))];
+  activitySocketEvents.emitActivityWeekUnsubmitted(result, projectIds);
+  return result;
+}
+
 async function approveWeek(weekId, accountId, req) {
   const week = await getWeekOrThrow(weekId);
 
@@ -460,6 +515,7 @@ module.exports = {
   getWeekById,
   createWeek,
   submitWeek,
+  unsubmitWeek,
   approveWeek,
   rejectWeek,
 };

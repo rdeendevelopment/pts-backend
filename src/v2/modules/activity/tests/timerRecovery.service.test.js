@@ -16,6 +16,7 @@ const saved = {
   findById: activeTimerRepository.findById,
   updateTimer: activeTimerRepository.updateTimer,
   createEntry: timeEntryService.createEntry,
+  createFinalizedTimerEntry: timeEntryService.createFinalizedTimerEntry,
   emitStarted: activitySocketEvents.emitActivityTimerStarted,
   emitStopped: activitySocketEvents.emitActivityTimerStopped,
 };
@@ -24,6 +25,7 @@ afterEach(() => {
   activeTimerRepository.findById = saved.findById;
   activeTimerRepository.updateTimer = saved.updateTimer;
   timeEntryService.createEntry = saved.createEntry;
+  timeEntryService.createFinalizedTimerEntry = saved.createFinalizedTimerEntry;
   activitySocketEvents.emitActivityTimerStarted = saved.emitStarted;
   activitySocketEvents.emitActivityTimerStopped = saved.emitStopped;
 });
@@ -55,9 +57,9 @@ test('over-limit stop caps the entry at eight hours without requiring correction
   let entryPayload = null;
   activeTimerRepository.findById = async () => timer;
   activeTimerRepository.updateTimer = async (_id, payload) => ({ ...timer, ...payload });
-  timeEntryService.createEntry = async (payload) => {
-    entryPayload = payload;
-    return { id: 'entry-1', minutes: payload.minutes };
+  timeEntryService.createFinalizedTimerEntry = async (stoppedTimer) => {
+    entryPayload = { minutes: Math.ceil(stoppedTimer.accumulatedSeconds / 60) };
+    return { id: 'entry-1', minutes: entryPayload.minutes };
   };
   activitySocketEvents.emitActivityTimerStopped = () => {};
 

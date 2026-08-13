@@ -6,6 +6,10 @@ const activeTimerRepository = require('../../repositories/activeTimer.repository
 const timeValidationService = require('../../services/timeValidation.service');
 const counterConsumptionService = require('../../services/counterConsumption.service');
 const projectsModule = require('../../../projects');
+const projectRepository = require('../../../projects/repositories/project.repository');
+const taskRepository = require('../../../tasks/repositories/task.repository');
+const workCategoryRepository = require('../../repositories/workCategory.repository');
+const taskNotificationService = require('../../../tasks/services/taskNotification.service');
 
 const ACCOUNT_ID = '507f1f77bcf86cd799439001';
 const USER_ID = '507f1f77bcf86cd799439012';
@@ -38,6 +42,15 @@ const originals = {
     recalculateProjectStats: projectsModule.recalculateProjectStats,
     emitProjectEvent: projectsModule.emitProjectEvent,
     getProjectStats: projectsModule.getProjectStats,
+  },
+  lookups: {
+    projectTitles: projectRepository.findTitlesByIds,
+    taskTitles: taskRepository.findTitlesByIds,
+    categoryNames: workCategoryRepository.findNamesByIds,
+  },
+  notifications: {
+    notifyAdmins: taskNotificationService.notifyAdmins,
+    createAndEmitNotification: taskNotificationService.createAndEmitNotification,
   },
 };
 
@@ -132,6 +145,12 @@ function wireLifecycleMocks(activeStore) {
   timeValidationService.validateTimeEntry = async () => ({ canLog: true });
   timeValidationService.validateTimerStart = async () => ({ canLog: true });
   activeTimerRepository.findRunningByUserId = async () => null;
+  activeTimerRepository.findActionableByUserId = async () => null;
+  projectRepository.findTitlesByIds = async () => [{ _id: PROJECT_ID, name: 'Test Project' }];
+  taskRepository.findTitlesByIds = async () => [];
+  workCategoryRepository.findNamesByIds = async () => [{ _id: CATEGORY_ID, name: 'Development' }];
+  taskNotificationService.notifyAdmins = async () => [];
+  taskNotificationService.createAndEmitNotification = async () => null;
 
   timeWeekRepository.findById = async (weekId) => store.getWeek(weekId);
   timeWeekRepository.findByUserAndWeekStart = async (userId, weekStartDate) => {
@@ -282,6 +301,11 @@ function teardownActivityLifecycleHarness() {
   timeValidationService.validateTimerStart = originals.timeValidation.validateTimerStart;
   counterConsumptionService.withOptionalTransaction = originals.counterConsumption.withOptionalTransaction;
   Object.assign(projectsModule, originals.projects);
+  projectRepository.findTitlesByIds = originals.lookups.projectTitles;
+  taskRepository.findTitlesByIds = originals.lookups.taskTitles;
+  workCategoryRepository.findNamesByIds = originals.lookups.categoryNames;
+  taskNotificationService.notifyAdmins = originals.notifications.notifyAdmins;
+  taskNotificationService.createAndEmitNotification = originals.notifications.createAndEmitNotification;
   store = null;
 }
 

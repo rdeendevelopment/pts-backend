@@ -26,7 +26,7 @@ module.exports = {
     businessTimezone: process.env.PTS_V2_BUSINESS_TIMEZONE || 'UTC',
     weekStartDay: resolveWeekStartDay(),
     maxTimerMinutes: Math.min(480, Number(process.env.PTS_V2_MAX_TIMER_MINUTES || 480)),
-    abandonedTimerMinutes: Number(process.env.PTS_V2_ABANDONED_TIMER_MINUTES || 60),
+    timerReviewMinutes: Math.max(1, Number(process.env.PTS_V2_TIMER_REVIEW_MINUTES || 240)),
     retainerAutoRenewal: {
       enabled: process.env.PTS_V2_RETAINER_AUTO_RENEWAL !== 'false',
       cronExpression: process.env.PTS_V2_RETAINER_RENEWAL_CRON || '5 0 * * *',

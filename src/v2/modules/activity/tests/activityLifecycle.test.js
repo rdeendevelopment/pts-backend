@@ -30,6 +30,7 @@ function makeReq({ manage = false } = {}) {
 beforeEach(() => {
   setupActivityLifecycleHarness();
   activitySocketEvents.emitActivityWeekSubmitted = () => {};
+  activitySocketEvents.emitActivityWeekUnsubmitted = () => {};
   activitySocketEvents.emitActivityWeekApproved = () => {};
   activitySocketEvents.emitActivityWeekRejected = () => {};
 });
@@ -92,6 +93,35 @@ test('flow 3: reject submitted week reverses counters and unlocks entries', asyn
   assert.equal(afterReject.assignmentConsumed, 0);
   assert.equal(afterReject.budgetConsumed, 0);
   assert.ok(afterReject.statsRecalcCalls > beforeReject.statsRecalcCalls);
+});
+
+test('user can unsubmit a pending week and edit it again', async () => {
+  const req = makeReq();
+  const store = getLifecycleStore();
+  const { week } = await createDraftWeekWithEntry(req);
+  await timeWeekService.submitWeek(week._id, ACCOUNT_ID, req);
+
+  const unsubmitted = await timeWeekService.unsubmitWeek(week._id, ACCOUNT_ID, req);
+  const entries = store.listEntries({ timeWeekId: week._id });
+
+  assert.equal(unsubmitted.status, 'draft');
+  assert.equal(unsubmitted.submittedAt, null);
+  assert.equal(entries[0].status, 'draft');
+  assert.equal(entries[0].isLocked, false);
+  assert.equal(store.snapshotCounters().assignmentConsumed, 0);
+  assert.equal(store.snapshotCounters().budgetConsumed, 0);
+});
+
+test('approved weeks cannot be unsubmitted by the user', async () => {
+  const req = makeReq({ manage: true });
+  const { week } = await createDraftWeekWithEntry(req);
+  await timeWeekService.submitWeek(week._id, ACCOUNT_ID, req);
+  await timeWeekService.approveWeek(week._id, ACCOUNT_ID, req);
+
+  await assert.rejects(
+    () => timeWeekService.unsubmitWeek(week._id, ACCOUNT_ID, req),
+    (err) => err.code === activityErrorCodes.ACTIVITY_WEEK_INVALID_STATUS,
+  );
 });
 
 test('flow 4: re-submit rejected week consumes counters only once', async () => {

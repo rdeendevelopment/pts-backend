@@ -45,6 +45,14 @@ const TimeEntrySchema = new Schema(
       required: true,
       index: true,
     },
+    timerId: {
+      type: Schema.Types.ObjectId,
+      ref: 'PtsActiveTimer',
+      default: null,
+      index: true,
+    },
+    needsReview: { type: Boolean, default: false, index: true },
+    reviewReason: { type: String, default: null, trim: true },
     entryDate: { type: Date, required: true, index: true },
     startTime: { type: Date, default: null },
     endTime: { type: Date, default: null },
@@ -87,6 +95,14 @@ TimeEntrySchema.index({ timeWeekId: 1, entryDate: 1 });
 TimeEntrySchema.index({ userId: 1, entryDate: 1 });
 TimeEntrySchema.index({ assignmentId: 1, isDeleted: 1, status: 1 });
 TimeEntrySchema.index({ projectId: 1, userId: 1, entryDate: -1, isDeleted: 1 });
+TimeEntrySchema.index(
+  { timerId: 1 },
+  {
+    unique: true,
+    name: 'pts_time_entries_timer_unique',
+    partialFilterExpression: { timerId: { $type: 'objectId' }, isDeleted: false },
+  },
+);
 
 async function ensureTimeEntryIndexes() {
   const TimeEntry = getV2Model('PtsTimeEntry', TimeEntrySchema);

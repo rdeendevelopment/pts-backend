@@ -36,6 +36,11 @@ async function findById(entryId, { includeDeleted = false } = {}) {
   return TimeEntry.findOne(query).exec();
 }
 
+async function findByTimerId(timerId) {
+  if (!timerId) return null;
+  return getTimeEntryModel().findOne({ timerId, isDeleted: false }).exec();
+}
+
 async function listEntries(filters = {}, options = {}) {
   const TimeEntry = getTimeEntryModel();
   const sort = options.sort || { entryDate: 1, createdAt: 1 };
@@ -223,6 +228,7 @@ async function countActiveEntriesForProject(projectId) {
 module.exports = {
   buildEntryQuery,
   findById,
+  findByTimerId,
   listEntries,
   aggregateWeekTotals,
   createEntry,

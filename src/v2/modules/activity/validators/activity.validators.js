@@ -107,9 +107,22 @@ const timerStartRules = [
   body('workCategoryId').notEmpty(),
   body('budgetId').optional().isString(),
   body('description').optional().isString(),
+  body('idempotencyKey').optional().isString().isLength({ min: 8, max: 128 }),
 ];
 
 const timerIdRules = [param('id').isString().notEmpty()];
+
+const timerMutationRules = [
+  ...timerIdRules,
+  body('expectedVersion').optional().isInt({ min: 0 }),
+  body('idempotencyKey').optional().isString().isLength({ min: 8, max: 128 }),
+];
+const timerSwitchRules = [
+  ...timerStartRules,
+  body('currentTimerId').notEmpty().isString(),
+  body('expectedVersion').optional().isInt({ min: 0 }),
+];
+
 const timerCorrectionRules = [
   ...timerIdRules,
   body('endTime').isISO8601(),
@@ -175,6 +188,8 @@ module.exports = {
   validatePreviewRules,
   timerStartRules,
   timerIdRules,
+  timerMutationRules,
+  timerSwitchRules,
   timerCorrectionRules,
   projectIdParamRules: projectIdRules,
   projectSummaryRules,

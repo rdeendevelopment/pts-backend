@@ -50,6 +50,7 @@ const ActiveTimerSchema = new Schema(
     sessionStartedAt: { type: Date, default: null },
     accumulatedSeconds: { type: Number, default: 0, min: 0 },
     maxAccumulatedSeconds: { type: Number, default: 8 * 60 * 60, min: 1 },
+    reviewThresholdSeconds: { type: Number, default: 4 * 60 * 60, min: 1 },
     limitReason: { type: String, default: 'maximum_duration', trim: true },
     lastHeartbeatAt: { type: Date, default: null, index: true },
     autoPauseReason: { type: String, default: null, trim: true },
@@ -58,6 +59,11 @@ const ActiveTimerSchema = new Schema(
     correctionReason: { type: String, default: null, trim: true },
     stoppedAt: { type: Date, default: null },
     description: { type: String, default: null, trim: true },
+    revision: { type: Number, default: 0, min: 0 },
+    startIdempotencyKey: { type: String, default: null, trim: true },
+    stopIdempotencyKey: { type: String, default: null, trim: true },
+    finalizationNeedsReview: { type: Boolean, default: false },
+    finalizationWarning: { type: String, default: null, trim: true },
     status: {
       type: String,
       enum: TIMER_STATUSES,
@@ -83,6 +89,15 @@ ActiveTimerSchema.index(
     name: 'pts_active_timers_user_running_unique',
     partialFilterExpression: { status: 'running', isDeleted: false },
   }
+);
+
+ActiveTimerSchema.index(
+  { userId: 1, startIdempotencyKey: 1 },
+  {
+    unique: true,
+    name: 'pts_active_timers_user_start_idempotency_unique',
+    partialFilterExpression: { startIdempotencyKey: { $type: 'string' }, isDeleted: false },
+  },
 );
 
 ActiveTimerSchema.index(

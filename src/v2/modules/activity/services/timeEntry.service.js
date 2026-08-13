@@ -203,6 +203,57 @@ async function previewValidation(payload, req) {
   });
 }
 
+/**
+ * Finalizes a server-owned timer snapshot without re-running Start-time business
+ * rules. Those rules may block new work, but must never trap existing work.
+ * timerId's unique index makes retries safe after a lost HTTP response.
+ */
+async function createFinalizedTimerEntry(timer, accountId) {
+  const existing = await timeEntryRepository.findByTimerId(timer._id);
+  if (existing) return toTimeEntryDto(existing);
+
+  const stoppedAt = new Date(timer.stoppedAt);
+  const week = await timeWeekService.getOrCreateWeek(timer.userId, stoppedAt, accountId);
+  const lockedWeek = week.status === 'submitted' || week.status === 'approved' || Boolean(week.lockedAt);
+  const longRunning = Number(timer.accumulatedSeconds || 0)
+    >= Number(timer.reviewThresholdSeconds || 4 * 60 * 60);
+  const reviewReasons = [];
+  if (longRunning) reviewReasons.push('Continuous tracking threshold exceeded');
+  if (lockedWeek) reviewReasons.push(`Timer stopped after week became ${week.status}`);
+  try {
+    const entry = await timeEntryRepository.createEntry({
+      timerId: timer._id,
+      timeWeekId: week._id,
+      projectId: timer.projectId,
+      assignmentId: timer.assignmentId,
+      userId: timer.userId,
+      budgetId: timer.budgetId || null,
+      taskId: timer.taskId || null,
+      workCategoryId: timer.workCategoryId,
+      entryDate: stoppedAt,
+      startTime: timer.sessionStartedAt || timer.startedAt,
+      endTime: stoppedAt,
+      minutes: Math.max(1, Math.ceil(Number(timer.accumulatedSeconds || 0) / 60)),
+      description: timer.description || null,
+      source: 'timer',
+      status: 'draft',
+      needsReview: longRunning || lockedWeek,
+      reviewReason: reviewReasons.length ? reviewReasons.join('; ') : null,
+      billable: true,
+      createdBy: accountId,
+      updatedBy: accountId,
+    });
+    await require('../repositories/timeWeek.repository').recalculateWeekTotals(week._id);
+    return toTimeEntryDto(entry);
+  } catch (err) {
+    if (err?.code === 11000 || err?.code === 11001) {
+      const duplicate = await timeEntryRepository.findByTimerId(timer._id);
+      if (duplicate) return toTimeEntryDto(duplicate);
+    }
+    throw err;
+  }
+}
+
 module.exports = {
   listEntries,
   getEntryById,
@@ -210,4 +261,5 @@ module.exports = {
   updateEntry,
   deleteEntry,
   previewValidation,
+  createFinalizedTimerEntry,
 };
