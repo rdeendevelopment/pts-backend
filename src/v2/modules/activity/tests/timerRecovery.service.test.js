@@ -50,22 +50,22 @@ function runningTimer() {
   };
 }
 
-test('over-limit stop freezes timer for correction and does not create an entry', async () => {
+test('over-limit stop caps the entry at eight hours without requiring correction', async () => {
   const timer = runningTimer();
-  let entryCreated = false;
+  let entryPayload = null;
   activeTimerRepository.findById = async () => timer;
   activeTimerRepository.updateTimer = async (_id, payload) => ({ ...timer, ...payload });
-  timeEntryService.createEntry = async () => {
-    entryCreated = true;
+  timeEntryService.createEntry = async (payload) => {
+    entryPayload = payload;
+    return { id: 'entry-1', minutes: payload.minutes };
   };
-  activitySocketEvents.emitActivityTimerStarted = () => {};
+  activitySocketEvents.emitActivityTimerStopped = () => {};
 
   const result = await timerService.stopTimer(TIMER_ID, ACCOUNT_ID, req());
 
-  assert.equal(result.needsCorrection, true);
-  assert.equal(result.timer.status, 'needs_correction');
-  assert.equal(entryCreated, false);
-  assert.ok(result.timer.accumulatedSeconds > 16 * 60 * 60);
+  assert.equal(result.timer.status, 'stopped');
+  assert.equal(result.needsCorrection, undefined);
+  assert.equal(entryPayload.minutes, 8 * 60);
 });
 
 test('correction saves valid duration and completes frozen timer', async () => {

@@ -14,7 +14,38 @@ const {
 } = require('../helpers/timerContext.helper');
 
 function getMaxTimerMinutes() {
-  return Number(env.v2.maxTimerMinutes || MAX_TIMER_MINUTES);
+  return Math.min(480, Number(env.v2.maxTimerMinutes || MAX_TIMER_MINUTES));
+}
+
+function getAbandonedTimerMinutes() {
+  return Math.max(1, Number(env.v2.abandonedTimerMinutes || 60));
+}
+
+function getTimerLimitSeconds(timer) {
+  return Math.min(
+    getMaxTimerMinutes() * 60,
+    Math.max(1, Number(timer.maxAccumulatedSeconds || getMaxTimerMinutes() * 60)),
+  );
+}
+
+function resolveTimerLimit(validation, accumulatedSeconds = 0) {
+  const hardLimitSeconds = getMaxTimerMinutes() * 60;
+  const allowExceed = Boolean(validation?.assignment?.allocation?.allowExceed);
+  if (allowExceed) {
+    return { maxAccumulatedSeconds: hardLimitSeconds, limitReason: 'maximum_duration' };
+  }
+
+  const remaining = [validation?.userRemainingMinutes, validation?.budgetRemainingMinutes]
+    .filter((value) => value !== null && value !== undefined && Number.isFinite(Number(value)))
+    .map(Number);
+  const remainingSeconds = remaining.length
+    ? Math.max(0, Math.min(...remaining) * 60)
+    : hardLimitSeconds;
+  const maxAccumulatedSeconds = Math.min(hardLimitSeconds, accumulatedSeconds + remainingSeconds);
+  return {
+    maxAccumulatedSeconds: Math.max(1, maxAccumulatedSeconds),
+    limitReason: maxAccumulatedSeconds < hardLimitSeconds ? 'allocation_limit' : 'maximum_duration',
+  };
 }
 
 function getElapsedSeconds(timer, at = new Date()) {
@@ -64,11 +95,24 @@ async function getActiveTimerForUser(userId) {
   if (timer?.status === 'running') {
     const now = new Date();
     const elapsedSeconds = getElapsedSeconds(timer, now);
-    if (elapsedSeconds > getMaxTimerMinutes() * 60) {
-      timer = await freezeForCorrection(timer, now, null);
+    if (elapsedSeconds >= getTimerLimitSeconds(timer)) {
+      timer = await pauseRunningTimerAt(timer, now, null, timer.limitReason || 'maximum_duration');
     }
   }
   return toActiveTimerDto(timer);
+}
+
+async function pauseRunningTimerAt(timer, at, accountId = null, reason = 'automatic_pause') {
+  if (timer.status !== 'running') return timer;
+  const accumulatedSeconds = Math.min(getElapsedSeconds(timer, at), getTimerLimitSeconds(timer));
+  const updated = await activeTimerRepository.updateTimer(timer._id, {
+    status: 'paused',
+    accumulatedSeconds,
+    pausedAt: at,
+    autoPauseReason: reason,
+    ...(accountId ? { updatedBy: accountId } : {}),
+  }, null, { expectedStatus: 'running' });
+  return updated || activeTimerRepository.findById(timer._id);
 }
 
 async function freezeForCorrection(timer, frozenAt = new Date(), accountId = null) {
@@ -94,9 +138,22 @@ async function freezeOverdueTimers(at = new Date()) {
   const timers = await activeTimerRepository.listRunning();
   let frozen = 0;
   for (const timer of timers) {
-    if (getElapsedSeconds(timer, at) <= getMaxTimerMinutes() * 60) continue;
-    const updated = await freezeForCorrection(timer, at, null);
-    if (updated?.status === 'needs_correction') {
+    const elapsedSeconds = getElapsedSeconds(timer, at);
+    const lastHeartbeatAt = timer.lastHeartbeatAt || timer.startedAt;
+    const heartbeatAge = at.getTime() - new Date(lastHeartbeatAt).getTime();
+    let pauseAt = null;
+    let reason = null;
+    if (elapsedSeconds >= getTimerLimitSeconds(timer)) {
+      const segmentAllowance = Math.max(0, getTimerLimitSeconds(timer) - Number(timer.accumulatedSeconds || 0));
+      pauseAt = new Date(new Date(timer.startedAt).getTime() + segmentAllowance * 1000);
+      reason = timer.limitReason || 'maximum_duration';
+    } else if (heartbeatAge >= getAbandonedTimerMinutes() * 60 * 1000) {
+      pauseAt = new Date(lastHeartbeatAt);
+      reason = 'heartbeat_timeout';
+    }
+    if (!pauseAt) continue;
+    const updated = await pauseRunningTimerAt(timer, pauseAt, null, reason);
+    if (updated?.status === 'paused') {
       frozen += 1;
       activitySocketEvents.emitActivityTimerStarted(timer.userId, toActiveTimerDto(updated));
     }
@@ -171,6 +228,7 @@ async function startTimer(payload, accountId, req) {
     || null;
 
   const now = new Date();
+  const timerLimit = resolveTimerLimit(validation);
 
   let timer;
   try {
@@ -186,6 +244,10 @@ async function startTimer(payload, accountId, req) {
       startedAt: now,
       sessionStartedAt: now,
       accumulatedSeconds: 0,
+      maxAccumulatedSeconds: timerLimit.maxAccumulatedSeconds,
+      limitReason: timerLimit.limitReason,
+      lastHeartbeatAt: now,
+      autoPauseReason: null,
       pausedAt: null,
       description: payload.description || null,
       status: 'running',
@@ -217,9 +279,9 @@ async function pauseTimer(timerId, accountId, req) {
 
   const now = new Date();
   const accumulatedSeconds = getElapsedSeconds(timer, now);
-  if (accumulatedSeconds > getMaxTimerMinutes() * 60) {
-    const frozen = await freezeForCorrection(timer, now, accountId);
-    const timerDto = toActiveTimerDto(frozen);
+  if (accumulatedSeconds >= getTimerLimitSeconds(timer)) {
+    const paused = await pauseRunningTimerAt(timer, now, accountId, timer.limitReason || 'maximum_duration');
+    const timerDto = toActiveTimerDto(paused);
     activitySocketEvents.emitActivityTimerStarted(req.v2Activity.userId, timerDto);
     return timerDto;
   }
@@ -286,6 +348,25 @@ async function resumeTimer(timerId, accountId, req) {
     });
   }
 
+  if (Number(timer.accumulatedSeconds || 0) >= getMaxTimerMinutes() * 60) {
+    throw new AppError('This timer reached the eight-hour single-run limit. Stop and save it before starting another.', {
+      status: 409,
+      code: activityErrorCodes.ACTIVITY_TIMER_MAX_DURATION_EXCEEDED,
+    });
+  }
+
+  const week = await timeWeekService.getOrCreateWeek(userId, new Date(), accountId);
+  const validation = await timeValidationService.validateTimerStart({
+    projectId: timer.projectId,
+    userId,
+    assignmentId: timer.assignmentId,
+    budgetId: timer.budgetId,
+    workCategoryId: timer.workCategoryId,
+    entryDate: new Date(),
+    timeWeek: week,
+  }, req);
+  const timerLimit = resolveTimerLimit(validation, Number(timer.accumulatedSeconds || 0));
+
   const now = new Date();
   let updated;
   try {
@@ -295,6 +376,10 @@ async function resumeTimer(timerId, accountId, req) {
         status: 'running',
         startedAt: now,
         pausedAt: null,
+        lastHeartbeatAt: now,
+        maxAccumulatedSeconds: timerLimit.maxAccumulatedSeconds,
+        limitReason: timerLimit.limitReason,
+        autoPauseReason: null,
         updatedBy: accountId,
       },
       null,
@@ -334,7 +419,7 @@ async function stopTimer(timerId, accountId, req) {
   }
 
   const stoppedAt = new Date();
-  const elapsedSeconds = getElapsedSeconds(timer, stoppedAt);
+  const elapsedSeconds = Math.min(getElapsedSeconds(timer, stoppedAt), getTimerLimitSeconds(timer));
   const elapsedMinutes = Math.ceil(elapsedSeconds / 60);
   const maxMinutes = getMaxTimerMinutes();
 
@@ -389,6 +474,23 @@ async function stopTimer(timerId, accountId, req) {
   activitySocketEvents.emitActivityTimerStopped(req.v2Activity.userId, stoppedTimer);
 
   return { timer: stoppedTimer, entry };
+}
+
+async function heartbeatTimer(timerId, accountId, req) {
+  const timer = await assertTimerOwner(await activeTimerRepository.findById(timerId), req);
+  if (timer.status !== 'running') return toActiveTimerDto(timer);
+
+  const now = new Date();
+  if (getElapsedSeconds(timer, now) >= getTimerLimitSeconds(timer)) {
+    const paused = await pauseRunningTimerAt(timer, now, accountId, timer.limitReason || 'maximum_duration');
+    activitySocketEvents.emitActivityTimerStarted(req.v2Activity.userId, toActiveTimerDto(paused));
+    return toActiveTimerDto(paused);
+  }
+  const updated = await activeTimerRepository.updateTimer(timer._id, {
+    lastHeartbeatAt: now,
+    updatedBy: accountId,
+  }, null, { expectedStatus: 'running' });
+  return toActiveTimerDto(updated || timer);
 }
 
 async function correctTimer(timerId, payload, accountId, req) {
@@ -503,6 +605,7 @@ module.exports = {
   listPausedTimersForUser,
   startTimer,
   pauseTimer,
+  heartbeatTimer,
   resumeTimer,
   stopTimer,
   correctTimer,

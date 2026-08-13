@@ -7,7 +7,7 @@ const WORK_CATEGORY_STATUSES = ['active', 'inactive'];
 const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
 
-const MAX_TIMER_MINUTES = 960; // 16 hours
+const MAX_TIMER_MINUTES = 480; // 8 hours per timer session
 
 const WEEK_START_DAYS = ['monday', 'sunday'];
 

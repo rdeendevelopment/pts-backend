@@ -1,0 +1,267 @@
+
+<div [ngClass]="{'collapsed': isCollapsed, 'expanded': !isCollapsed}" class="sidebar" *ngIf="role == 'super-admin'">
+  <button (click)="toggleCollapse()" class="toggle-button">
+    <i [ngClass]="isCollapsed ? 'ri-arrow-left-line ' : 'ri-arrow-right-line'"></i>
+  
+    
+  </button>
+  <div class="sidebar-logo-header" >
+    <div class="logo" routerLink="/dashboard" style="cursor: pointer;" *ngIf="!isCollapsed">
+      <img src="assets/imgaes/logo.svg" class="logo-full" alt="PTS Logo" style="height:38px;width:auto;">
+    </div>
+   </div>
+   <ul class="menu-sidebar">
+    <h4 class="nav-Page" *ngIf="!isCollapsed">Home</h4>
+    <li *ngIf="canShow('dashboard')">
+      <a routerLink="/admin" routerLinkActive="routeractivelik" [routerLinkActiveOptions]="{ exact: true }">
+        <i class="ri-dashboard-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">Dashboard</span>
+      </a>
+    </li>
+    <h4 class="nav-Page" *ngIf="!isCollapsed">Manage</h4>
+    <li *ngIf="canShow('employees')">
+      <a routerLink="/admin/user/all-user" routerLinkActive="routeractivelik" [routerLinkActiveOptions]="{ exact: true }">
+        <i class="ri-user-settings-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">Manage Users</span>
+      </a>
+    </li>
+  
+    <li *ngIf="canShow('clients')">
+      <a routerLink="/admin/client/all-clients" routerLinkActive="routeractivelik" [routerLinkActiveOptions]="{ exact: true }">
+        <i class="ri-group-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">Manage Clients</span>
+      </a>
+    </li>
+    <li *ngIf="canShowActivity()">
+      <a routerLink="/admin/manage-activity/workforce-reports-v2" routerLinkActive="routeractivelik">
+        <i class="ri-time-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">Timesheets</span>
+      </a>
+    </li>
+    <li *ngIf="canShow('converse')">
+      <a routerLink="/converse" routerLinkActive="routeractivelik">
+        <i class="ri-chat-3-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">Converse</span>
+      </a>
+    </li>
+    <li *ngIf="canShow('discuss_flow')">
+      <a href="#discuss-flow-menu" data-bs-toggle="collapse" aria-expanded="false" class="dropdown-toggle">
+        <i class="ri-brain-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">
+          DiscussFlow AI
+          <span class="dropdown-icon">
+            <i class="ri-arrow-right-s-line"></i>
+            <i class="ri-arrow-down-s-line"></i>
+          </span>
+        </span>
+      </a>
+      <div class="collapse list-unstyled menu" id="discuss-flow-menu" *ngIf="!isCollapsed">
+        <li>
+          <a routerLink="/admin/discuss-flow" routerLinkActive="routeractivelik">
+            <i class="fas fa-minus"></i>
+            <span>Topics</span>
+          </a>
+        </li>
+        <li>
+          <a routerLink="/admin/discuss-flow" [queryParams]="{ view: 'shared' }" routerLinkActive="routeractivelik">
+            <i class="fas fa-minus"></i>
+            <span>Shared Topics</span>
+          </a>
+        </li>
+        <li>
+          <a routerLink="/admin/discuss-flow" [queryParams]="{ view: 'ai-reviews' }" routerLinkActive="routeractivelik">
+            <i class="fas fa-minus"></i>
+            <span>AI Reviews</span>
+          </a>
+        </li>
+        <li>
+          <a routerLink="/admin/discuss-flow" [queryParams]="{ view: 'documents' }" routerLinkActive="routeractivelik">
+            <i class="fas fa-minus"></i>
+            <span>Documents</span>
+          </a>
+        </li>
+        <li>
+          <a routerLink="/admin/discuss-flow" [queryParams]="{ view: 'recent' }" routerLinkActive="routeractivelik">
+            <i class="fas fa-minus"></i>
+            <span>Recent Discussions</span>
+          </a>
+        </li>
+      </div>
+    </li>
+    <li *ngIf="canShow('daily_flow')">
+      <a routerLink="/my-day" routerLinkActive="routeractivelik">
+        <i class="ri-sun-foggy-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">My Day</span>
+      </a>
+    </li>
+    <li *ngIf="canShow('daily_flow')">
+      <a routerLink="/admin/my-day-reports" routerLinkActive="routeractivelik">
+        <i class="ri-file-chart-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">My Day Reports</span>
+      </a>
+    </li>
+
+    <li *ngIf="canShow('projects')">
+      <a href="#manage-project" data-bs-toggle="collapse" aria-expanded="false" class="dropdown-toggle" >
+        <i class="fa-solid fa-list"></i>
+        <span class="link-text" *ngIf="!isCollapsed">
+          Manage Projects
+          <span class="dropdown-icon" >
+            <i class="ri-arrow-right-s-line"></i>
+            <i class="ri-arrow-down-s-line"></i>
+          </span>
+        </span>
+      </a>
+      <div class="collapse list-unstyled menu" id="manage-project" *ngIf="!isCollapsed">
+        <li>
+          <a routerLink="/admin/projects/all-projects" routerLinkActive="routeractivelik">
+            <i class="fas fa-minus"></i> 
+            <span >Projects List</span>
+          </a>
+        </li>
+        <li>
+          <a routerLink="/admin/projects/add-new" routerLinkActive="routeractivelik">
+            <i class="fas fa-minus"></i> 
+            <span >Add New</span>
+          </a>
+        </li>
+        
+   
+      </div>
+    </li>
+    
+    
+    <h4 class="nav-Page" *ngIf="!isCollapsed">Links</h4>
+
+    <li class="sidebar-quick-links">
+      <a href="#quick-links" data-bs-toggle="collapse" aria-expanded="false" class="dropdown-toggle">
+        <i class="ri-links-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">Quick Links</span>
+      </a>
+      <div class="collapse list-unstyled menu" id="quick-links">
+        <li>
+          <a routerLink="/dashboard/quick-link1" routerLinkActive="routeractivelik">
+            <i class="fas fa-chevron-right"></i> Quick Link 1
+          </a>
+        </li>
+        <li>
+          <a routerLink="/dashboard/quick-link2" routerLinkActive="routeractivelik">
+            <i class="fas fa-chevron-right"></i> Quick Link 2
+          </a>
+        </li>
+      </div>
+    </li>
+    
+    <h4 class="nav-Page" *ngIf="!isCollapsed">Administration</h4>
+    <li class="sidebar-settings" *ngIf="canShow('settings')">
+      <a href="#settings" data-bs-toggle="collapse" aria-expanded="false" class="dropdown-toggle">
+        <i class="ri-settings-3-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">Settings</span>
+      </a>
+      <div class="collapse list-unstyled menu" id="settings">
+        <li>
+          <a routerLink="/settings/profile" routerLinkActive="routeractivelik">
+            <i class="fas fa-chevron-right"></i> Profile Settings
+          </a>
+        </li>
+        <li>
+          <a routerLink="/settings/preferences" routerLinkActive="routeractivelik">
+            <i class="fas fa-chevron-right"></i> App Preferences
+          </a>
+        </li>
+      </div>
+    </li>
+    <li class="sidebar-progress">
+      <a href="#project-progress" data-bs-toggle="collapse" aria-expanded="false" class="dropdown-toggle">
+        <i class="ri-bar-chart-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">Project Stats</span>
+      </a>
+      <div class="collapse list-unstyled menu" id="project-progress">
+        <li>
+          <a href="#">Project A - 75% Completed</a>
+          <progress value="75" max="100"></progress>
+        </li>
+        <li>
+          <a href="#">Project B - 40% Completed</a>
+          <progress value="40" max="100"></progress>
+        </li>
+      </div>
+    </li>
+    <h4 class="nav-Page" *ngIf="!isCollapsed">Support</h4>
+    <li class="sidebar-help">
+      <a href="/help" routerLinkActive="routeractivelik">
+        <i class="ri-question-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">Help</span>
+      </a>
+    </li>
+    <h4 class="nav-Page" *ngIf="!isCollapsed">Authentication</h4>
+    <li class="sidebar-logout">
+      <a routerLink="/login" href="#">
+        <i class="ri-logout-circle-r-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">Logout</span>
+      </a>
+    </li>
+                
+  </ul>
+  
+</div>
+
+
+
+
+<div [ngClass]="{'collapsed': isCollapsed, 'expanded': !isCollapsed}" class="sidebar" *ngIf="role == 'employee'">
+  <button (click)="toggleCollapse()" class="toggle-button">
+    <i [ngClass]="isCollapsed ? 'ri-arrow-left-line ' : 'ri-arrow-right-line'"></i>
+  </button>
+
+  <div class="sidebar-logo-header" >
+    <div class="logo" routerLink="/user" style="cursor: pointer;" *ngIf="!isCollapsed">
+      <img src="assets/imgaes/logo.svg" class="logo-full" alt="PTS Logo" style="height:38px;width:auto;">
+    </div>
+   </div>
+
+   <ul class="menu-sidebar">
+    <h4 class="nav-Page" *ngIf="!isCollapsed">Home</h4>
+    <li *ngIf="canShow('dashboard')">
+      <a routerLink="/admin" routerLinkActive="routeractivelik" [routerLinkActiveOptions]="{ exact: true }">
+        <i class="ri-dashboard-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">Dashboard</span>
+      </a>
+    </li>
+    <h4 class="nav-Page" *ngIf="!isCollapsed">Manage</h4>
+    <li *ngIf="canShow('projects')">
+      <a routerLink="/user/projects" routerLinkActive="routeractivelik" [routerLinkActiveOptions]="{ exact: true }">
+        <i class="ri-user-settings-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">My Projects</span>
+      </a>
+    </li>
+  
+    <li *ngIf="canShowClockActivity()">
+      <a routerLink="/user/time-tracking" routerLinkActive="routeractivelik">
+        <i class="ri-timer-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">Log Time</span>
+      </a>
+    </li>
+
+    <li *ngIf="canShowActivity()">
+      <a routerLink="/user/activity/my-activity" routerLinkActive="routeractivelik">
+        <i class="ri-time-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">My Activity</span>
+      </a>
+    </li>
+    <li *ngIf="canShow('converse')">
+      <a routerLink="/converse" routerLinkActive="routeractivelik">
+        <i class="ri-chat-3-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">Converse</span>
+      </a>
+    </li>
+    <li *ngIf="canShow('daily_flow')">
+      <a routerLink="/my-day" routerLinkActive="routeractivelik">
+        <i class="ri-sun-foggy-line"></i>
+        <span class="link-text" *ngIf="!isCollapsed">My Day</span>
+      </a>
+    </li>
+
+  </ul>
+
+</div>

@@ -48,6 +48,12 @@ async function pauseTimer(req, res) {
   return sendSuccess(res, data);
 }
 
+async function heartbeatTimer(req, res) {
+  const timerId = assertObjectId(req.params.id, 'id');
+  const data = await timerService.heartbeatTimer(timerId, req.v2Auth.accountId, req);
+  return sendSuccess(res, data);
+}
+
 async function resumeTimer(req, res) {
   const timerId = assertObjectId(req.params.id, 'id');
   const data = await timerService.resumeTimer(timerId, req.v2Auth.accountId, req);
@@ -71,6 +77,7 @@ module.exports = {
   listPausedTimers: asyncHandler(listPausedTimers),
   startTimer: asyncHandler(startTimer),
   pauseTimer: asyncHandler(pauseTimer),
+  heartbeatTimer: asyncHandler(heartbeatTimer),
   resumeTimer: asyncHandler(resumeTimer),
   stopTimer: asyncHandler(stopTimer),
   correctTimer: asyncHandler(correctTimer),

@@ -129,6 +129,14 @@ router.post('/timers/:id/pause', canViewActivity, timerIdRules, validateRequest,
     next(err);
   }
 }, timerController.pauseTimer);
+router.post('/timers/:id/heartbeat', canViewActivity, timerIdRules, validateRequest, (req, res, next) => {
+  try {
+    assertObjectId(req.params.id, 'id');
+    next();
+  } catch (err) {
+    next(err);
+  }
+}, timerController.heartbeatTimer);
 router.post('/timers/:id/resume', canViewActivity, timerIdRules, validateRequest, (req, res, next) => {
   try {
     assertObjectId(req.params.id, 'id');

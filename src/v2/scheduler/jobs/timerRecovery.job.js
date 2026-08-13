@@ -7,7 +7,7 @@ function registerTimerRecoveryJob(agenda) {
   agenda.define(JOB_NAME, { concurrency: 1, lockLifetime: 2 * 60 * 1000 }, async () => {
     try {
       const result = await timerService.freezeOverdueTimers(new Date());
-      if (result.frozen > 0) info('Overdue timers frozen for correction', result);
+      if (result.frozen > 0) info('Overdue or abandoned timers automatically paused', result);
     } catch (err) {
       error('Overdue timer recovery failed', { message: err.message });
       throw err;
@@ -16,7 +16,7 @@ function registerTimerRecoveryJob(agenda) {
 }
 
 async function scheduleTimerRecoveryJob(agenda) {
-  await agenda.every('5 minutes', JOB_NAME, {}, { skipImmediate: false });
+  await agenda.every('1 minute', JOB_NAME, {}, { skipImmediate: false });
 }
 
 module.exports = {

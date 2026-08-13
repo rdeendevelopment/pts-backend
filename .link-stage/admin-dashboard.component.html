@@ -1,0 +1,453 @@
+<div class="main-content">
+  <div class="dashboard-content">
+    <app-navbar></app-navbar>
+
+    <div class="adm-dash adm-dash--workspace">
+
+      <!-- ── Page Header ──────────────────────────────────────────── -->
+      <div class="adm-header adm-header--chrome">
+        <div class="adm-header-left">
+          <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-1 p-0">
+              <li class="breadcrumb-item">Home<span class="breadcrumb-icon"><i class="ri-arrow-right-s-line"></i></span></li>
+              <li class="breadcrumb-item active">Dashboard</li>
+            </ol>
+          </nav>
+          <h4 class="adm-page-title">Command Center</h4>
+          <p class="adm-page-sub">{{ today | date:'EEEE, MMMM d, y' }}</p>
+        </div>
+        <div class="adm-header-actions">
+          <button class="adm-btn-ghost" (click)="navigate('/admin/projects/add-new')">
+            <i class="ri-folder-add-line"></i> New Project
+          </button>
+          <button class="adm-btn-ghost" (click)="navigate('/admin/user/all-user')">
+            <i class="ri-user-add-line"></i> Users
+          </button>
+          <button class="adm-btn-primary" (click)="navigate('/admin/manage-activity/workforce-reports-v2')">
+            <i class="ri-time-line"></i> Manage Activity
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Summary Cards ────────────────────────────────────────── -->
+      <div class="adm-cards-grid">
+
+        <div class="adm-stat-card c-purple" (click)="navigate('/admin/projects/all-projects')">
+          <div class="adm-sc-icon"><i class="ri-folder-chart-line"></i></div>
+          <div class="adm-sc-body">
+            <div class="adm-sc-val">
+              <ng-container *ngIf="!loadingProjects">{{ activeProjectsCount }}</ng-container>
+              <span class="adm-skel" *ngIf="loadingProjects"></span>
+            </div>
+            <div class="adm-sc-label">Active Projects</div>
+            <div class="adm-sc-sub">{{ completedProjectsCount }} completed</div>
+          </div>
+        </div>
+
+        <div class="adm-stat-card c-blue" (click)="navigate('/admin/user/all-user')">
+          <div class="adm-sc-icon"><i class="ri-team-line"></i></div>
+          <div class="adm-sc-body">
+            <div class="adm-sc-val">
+              <ng-container *ngIf="!loadingUsers">{{ activeUsersCount }}</ng-container>
+              <span class="adm-skel" *ngIf="loadingUsers"></span>
+            </div>
+            <div class="adm-sc-label">Team Members</div>
+            <div class="adm-sc-sub">{{ allUsers.length }} total</div>
+          </div>
+        </div>
+
+        <div class="adm-stat-card c-green" (click)="navigate('/admin/client/all-clients')">
+          <div class="adm-sc-icon"><i class="ri-briefcase-4-line"></i></div>
+          <div class="adm-sc-body">
+            <div class="adm-sc-val">{{ activeClientsCount }}</div>
+            <div class="adm-sc-label">Clients</div>
+            <div class="adm-sc-sub">{{ allClients.length }} total</div>
+          </div>
+        </div>
+
+        <div class="adm-stat-card c-amber">
+          <div class="adm-sc-icon"><i class="ri-time-line"></i></div>
+          <div class="adm-sc-body">
+            <div class="adm-sc-val">
+              <ng-container *ngIf="!loadingApprovals">{{ hoursThisWeekLabel }}</ng-container>
+              <span class="adm-skel" *ngIf="loadingApprovals"></span>
+            </div>
+            <div class="adm-sc-label">Hours This Week</div>
+            <div class="adm-sc-sub">Across all team</div>
+          </div>
+        </div>
+
+        <div class="adm-stat-card c-orange"
+          [class.c-alert]="pendingApprovalsCount > 0"
+          (click)="navigate('/admin/manage-activity/workforce-reports-v2')">
+          <div class="adm-sc-icon"><i class="ri-checkbox-circle-line"></i></div>
+          <div class="adm-sc-body">
+            <div class="adm-sc-val">
+              <ng-container *ngIf="!loadingApprovals">{{ pendingApprovalsCount }}</ng-container>
+              <span class="adm-skel" *ngIf="loadingApprovals"></span>
+            </div>
+            <div class="adm-sc-label">Pending Approvals</div>
+            <div class="adm-sc-sub">Timesheets awaiting</div>
+          </div>
+        </div>
+
+        <div class="adm-stat-card c-violet" (click)="navigate('/tasks/inbox')">
+          <div class="adm-sc-icon"><i class="ri-task-line"></i></div>
+          <div class="adm-sc-body">
+            <div class="adm-sc-val">
+              <ng-container *ngIf="!loadingTasks">{{ openTasksCount }}</ng-container>
+              <span class="adm-skel" *ngIf="loadingTasks"></span>
+            </div>
+            <div class="adm-sc-label">Open Tasks</div>
+            <div class="adm-sc-sub">{{ dueTodayCount }} due today</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ── DiscussFlow Continue Widget ───────────────────────────── -->
+      <div class="adm-section adm-section--panel" *ngIf="utility.hasModule('discuss_flow')">
+        <div class="adm-section-head adm-section-head--split">
+          <div class="adm-section-title">
+            <i class="ri-brain-line"></i>
+            Continue Discussions
+            <span class="adm-pill">{{ discussFlowTopics.length }}</span>
+          </div>
+          <button class="adm-link-btn" (click)="navigate('/admin/discuss-flow')">
+            Open DiscussFlow <i class="ri-arrow-right-s-line"></i>
+          </button>
+        </div>
+
+        <div class="adm-task-stats" *ngIf="loadingDiscussFlow">
+          <div class="adm-tstat-card" *ngFor="let i of [1,2,3]">
+            <div class="adm-tstat-skel-val"></div>
+            <div class="adm-tstat-skel-label"></div>
+          </div>
+        </div>
+
+        <div class="adm-task-stats" *ngIf="!loadingDiscussFlow">
+          <div class="adm-tstat-card tstat-open" (click)="navigate('/admin/discuss-flow')">
+            <div class="adm-tstat-icon"><i class="ri-chat-3-line"></i></div>
+            <div class="adm-tstat-val">{{ discussFlowTopics.length }}</div>
+            <div class="adm-tstat-label">Last active topics</div>
+          </div>
+          <div class="adm-tstat-card tstat-high" (click)="navigate('/admin/discuss-flow')">
+            <div class="adm-tstat-icon"><i class="ri-sparkling-line"></i></div>
+            <div class="adm-tstat-val">{{ discussFlowPendingReviewsCount }}</div>
+            <div class="adm-tstat-label">Pending reviews</div>
+          </div>
+          <div class="adm-tstat-card tstat-done" (click)="navigate('/admin/discuss-flow')">
+            <div class="adm-tstat-icon"><i class="ri-file-list-3-line"></i></div>
+            <div class="adm-tstat-val">{{ discussFlowDocumentsCount }}</div>
+            <div class="adm-tstat-label">Documents waiting</div>
+          </div>
+          <div class="adm-tstat-card tstat-today" *ngFor="let topic of discussFlowTopics.slice(0, 2); trackBy: trackById" (click)="navigate('/admin/discuss-flow/' + topic.id)">
+            <div class="adm-tstat-icon"><i class="ri-discuss-line"></i></div>
+            <div class="adm-tstat-val">{{ topic.message_count || 0 }}</div>
+            <div class="adm-tstat-label">{{ topic.title }}</div>
+          </div>
+        </div>
+
+        <div *ngIf="!loadingDiscussFlow && !discussFlowTopics.length" class="adm-empty adm-empty--panel">
+          <i class="ri-chat-new-line"></i>
+          <span>Start your first discussion and turn client context into approved Truth.</span>
+        </div>
+      </div>
+
+      <!-- ── Task Stats Section ────────────────────────────────────── -->
+      <div class="adm-section adm-section--panel">
+        <div class="adm-section-head adm-section-head--toolbar">
+          <div class="adm-section-title">
+            <i class="ri-bar-chart-box-line"></i>
+            Task Overview
+          </div>
+          <div class="adm-filter-tabs">
+            <button class="adm-ftab" [class.active]="taskFilter === 'all'"   (click)="setTaskFilter('all')">All Time</button>
+            <button class="adm-ftab" [class.active]="taskFilter === 'today'" (click)="setTaskFilter('today')">Today</button>
+            <button class="adm-ftab" [class.active]="taskFilter === 'week'"  (click)="setTaskFilter('week')">This Week</button>
+            <button class="adm-ftab" [class.active]="taskFilter === 'month'" (click)="setTaskFilter('month')">This Month</button>
+          </div>
+          <button class="adm-link-btn" (click)="navigate('/tasks/inbox')">
+            Open Workspace <i class="ri-arrow-right-s-line"></i>
+          </button>
+        </div>
+
+        <div class="adm-task-stats" *ngIf="!loadingTasks">
+          <div class="adm-tstat-card tstat-open">
+            <div class="adm-tstat-icon"><i class="ri-loader-4-line"></i></div>
+            <div class="adm-tstat-val">{{ openTasksCount }}</div>
+            <div class="adm-tstat-label">Open / Active</div>
+          </div>
+          <div class="adm-tstat-card tstat-done">
+            <div class="adm-tstat-icon"><i class="ri-checkbox-circle-fill"></i></div>
+            <div class="adm-tstat-val">{{ completedTasksCount }}</div>
+            <div class="adm-tstat-label">Completed</div>
+          </div>
+          <div class="adm-tstat-card tstat-overdue">
+            <div class="adm-tstat-icon"><i class="ri-alarm-warning-line"></i></div>
+            <div class="adm-tstat-val">{{ overdueTasksCount }}</div>
+            <div class="adm-tstat-label">Overdue</div>
+          </div>
+          <div class="adm-tstat-card tstat-high">
+            <div class="adm-tstat-icon"><i class="ri-flag-2-line"></i></div>
+            <div class="adm-tstat-val">{{ highPriorityCount }}</div>
+            <div class="adm-tstat-label">High Priority</div>
+          </div>
+          <div class="adm-tstat-card tstat-today">
+            <div class="adm-tstat-icon"><i class="ri-calendar-check-line"></i></div>
+            <div class="adm-tstat-val">{{ dueTodayCount }}</div>
+            <div class="adm-tstat-label">Due Today</div>
+          </div>
+        </div>
+
+        <div class="adm-task-stats" *ngIf="loadingTasks">
+          <div class="adm-tstat-card" *ngFor="let i of [1,2,3,4,5]">
+            <div class="adm-tstat-skel-val"></div>
+            <div class="adm-tstat-skel-label"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Projects Strip ────────────────────────────────────────── -->
+      <div class="adm-section adm-section--panel">
+        <div class="adm-section-head adm-section-head--split">
+          <div class="adm-section-title">
+            <i class="ri-folder-chart-line"></i>
+            Projects Health
+            <span class="adm-pill">{{ projectsTotalCount }}</span>
+          </div>
+          <button class="adm-link-btn" (click)="navigate('/admin/projects/all-projects')">
+            See More <i class="ri-arrow-right-s-line"></i>
+          </button>
+        </div>
+
+        <!-- Loading -->
+        <div class="adm-proj-scroll adm-proj-scroll--responsive" *ngIf="loadingProjects">
+          <div class="adm-proj-card adm-proj-skel" *ngFor="let i of [1,2,3,4]">
+            <div class="aps-line aps-title"></div>
+            <div class="aps-line aps-sub"></div>
+            <div class="aps-bar"></div>
+            <div class="aps-row">
+              <div class="aps-chip"></div><div class="aps-chip"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Empty -->
+        <div *ngIf="!loadingProjects && allProjects.length === 0" class="adm-empty adm-empty--panel">
+          <i class="ri-folder-open-line"></i>
+          <span>No projects found. Create your first project to get started.</span>
+        </div>
+
+        <!-- Cards strip -->
+        <div class="adm-proj-scroll adm-proj-scroll--responsive" *ngIf="!loadingProjects && allProjects.length > 0">
+          <div class="adm-proj-card"
+            *ngFor="let project of allProjectsSorted; trackBy: trackById"
+            (click)="navigate('/admin/projects/detail/' + project.id)">
+
+            <!-- Card header -->
+            <div class="apc-head">
+              <div class="apc-icon">
+                <i class="ri-folder-chart-2-line"></i>
+              </div>
+              <span class="status-badge status-{{ project.status }}">{{ project.status | titlecase }}</span>
+            </div>
+
+            <!-- Title + client -->
+            <div class="apc-title" [title]="project.title">{{ project.title | titlecase }}</div>
+            <div class="apc-client">
+              <i class="ri-building-line"></i>
+              {{ project.client_name || project.clientName || 'No client' }}
+            </div>
+
+            <!-- Deadline -->
+            <div class="apc-deadline" [ngClass]="deadlineInfo(project).cls">
+              <i class="ri-calendar-event-line"></i>
+              <span *ngIf="project.deadline">{{ project.deadline | date:'MMM d, y' }}</span>
+              <span class="apc-dl-badge" [ngClass]="deadlineInfo(project).cls">
+                {{ deadlineInfo(project).label }}
+              </span>
+            </div>
+
+            <!-- Budget bar -->
+            <div class="apc-budget-wrap">
+              <div class="apc-budget-labels">
+                <span><i class="ri-time-line"></i> {{ minutesLabel(projectConsumedMinutes(project)) }} used</span>
+                <span *ngIf="projectAllocatedMinutes(project)">of {{ minutesLabel(projectAllocatedMinutes(project)) }}</span>
+                <span *ngIf="!projectAllocatedMinutes(project)" class="apc-no-budget">No budget set</span>
+              </div>
+              <div class="apc-bar-track" *ngIf="projectAllocatedMinutes(project)">
+                <div class="apc-bar-fill"
+                  [ngClass]="budgetBarClass(project)"
+                  [style.width.%]="budgetPercent(project)">
+                </div>
+              </div>
+              <div class="apc-budget-pct" *ngIf="projectAllocatedMinutes(project)">
+                {{ budgetPercent(project) }}% used
+              </div>
+            </div>
+
+            <!-- Footer chips -->
+            <div class="apc-footer">
+              <div class="apc-chip" title="Logged time">
+                <i class="ri-time-line"></i>
+                {{ minutesLabel(projectConsumedMinutes(project)) }} logged
+              </div>
+              <div class="apc-chip" *ngIf="projectAllocatedMinutes(project)" title="Remaining budget">
+                <i class="ri-pie-chart-line"></i>
+                {{ minutesLabel(projectRemainingMinutes(project)) }} left
+              </div>
+              <div class="apc-chip apc-open" (click)="$event.stopPropagation(); navigate('/tasks/inbox')">
+                <i class="ri-task-line"></i> Tasks
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Bottom Grid: team + approvals + actions ────────────────── -->
+      <div class="adm-main-grid">
+
+        <!-- Team Workload -->
+        <div class="adm-panel">
+          <div class="adm-panel-header">
+            <h5 class="adm-panel-title"><i class="ri-team-line"></i> Team Overview</h5>
+            <button class="adm-link-btn" (click)="navigate('/admin/manage-activity/workforce-reports-v2')">
+              View Activity <i class="ri-arrow-right-s-line"></i>
+            </button>
+          </div>
+          <div class="adm-panel-body">
+            <div *ngIf="loadingApprovals || loadingUsers" class="adm-loading-rows">
+              <div class="adm-skeleton-row" *ngFor="let i of [1,2,3,4]"></div>
+            </div>
+            <div *ngIf="!loadingApprovals && !loadingUsers && teamWorkload.length === 0" class="adm-empty adm-empty--inline">
+              <i class="ri-user-line"></i><span>No timesheet data yet</span>
+            </div>
+            <table class="adm-table" *ngIf="!loadingApprovals && !loadingUsers && teamWorkload.length > 0">
+              <thead>
+                <tr>
+                  <th>Member</th>
+                  <th>Hours Logged</th>
+                  <th>Submitted</th>
+                  <th>Approved</th>
+                  <th>Draft</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let m of teamWorkload; trackBy: trackById">
+                  <td>
+                    <div class="adm-member-cell">
+                      <div class="adm-avatar">{{ (m.name[0] || '?') | uppercase }}</div>
+                      <div>
+                        <div class="adm-member-name">{{ m.name }}</div>
+                        <div class="adm-text-muted">{{ m.email }}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td><strong>{{ minutesLabel(m.totalMinutes) }}</strong></td>
+                  <td><span class="adm-badge adm-badge-submitted">{{ m.submitted }}</span></td>
+                  <td><span class="adm-badge adm-badge-approved">{{ m.approved }}</span></td>
+                  <td><span class="adm-badge adm-badge-draft">{{ m.draft }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Right: Approvals + Quick Actions -->
+        <div class="adm-col-side">
+
+          <!-- Pending Approvals -->
+          <div class="adm-panel">
+            <div class="adm-panel-header">
+              <h5 class="adm-panel-title">
+                <i class="ri-checkbox-circle-line"></i> Pending Approvals
+                <span class="adm-count-badge" *ngIf="pendingApprovalsCount > 0">{{ pendingApprovalsCount }}</span>
+              </h5>
+            </div>
+            <div class="adm-panel-body adm-panel-scroll">
+              <div *ngIf="loadingApprovals" class="adm-loading-rows">
+                <div class="adm-skeleton-row" *ngFor="let i of [1,2,3]"></div>
+              </div>
+              <div *ngIf="!loadingApprovals && pendingWeeks.length === 0" class="adm-empty adm-empty--inline">
+                <i class="ri-check-double-line"></i><span>All caught up!</span>
+              </div>
+              <div class="adm-approval-item" *ngFor="let week of pendingWeeks; trackBy: trackById">
+                <div class="adm-approval-info">
+                  <div class="adm-approval-name">
+                    {{ week.first_name ? ((week.first_name + ' ' + (week.last_name || '')) | titlecase) : (week.email || 'Unknown') }}
+                  </div>
+                  <div class="adm-text-muted">
+                    {{ week.week_start_date | date:'MMM d' }} – {{ week.week_end_date | date:'MMM d' }}
+                    &middot; <strong>{{ minutesLabel(week.total_minutes) }}</strong>
+                  </div>
+                </div>
+                <div class="adm-approval-actions">
+                  <button class="adm-approve-btn" [disabled]="approvingId === week.id" (click)="approve(week)" title="Approve">
+                    <i class="ri-check-line"></i>
+                  </button>
+                  <button class="adm-reject-btn" [disabled]="rejectingId === week.id" (click)="openReject(week)" title="Reject">
+                    <i class="ri-close-line"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Actions -->
+          <div class="adm-panel">
+            <div class="adm-panel-header">
+              <h5 class="adm-panel-title"><i class="ri-rocket-line"></i> Quick Actions</h5>
+            </div>
+            <div class="adm-panel-body">
+              <div class="adm-quick-actions">
+                <button type="button" class="adm-quick-action adm-quick-action--row" (click)="navigate('/admin/projects/add-new')">
+                  <i class="ri-folder-add-line"></i><span>Create Project</span>
+                </button>
+                <button type="button" class="adm-quick-action adm-quick-action--row" (click)="navigate('/admin/user/all-user')">
+                  <i class="ri-user-add-line"></i><span>Manage Users</span>
+                </button>
+                <button type="button" class="adm-quick-action adm-quick-action--row" (click)="navigate('/admin/client/all-clients')">
+                  <i class="ri-briefcase-4-line"></i><span>Clients</span>
+                </button>
+                <button type="button" class="adm-quick-action adm-quick-action--row" (click)="navigate('/admin/manage-activity/workforce-reports-v2')">
+                  <i class="ri-time-line"></i><span>Review Activity</span>
+                </button>
+                <button type="button" class="adm-quick-action adm-quick-action--row" (click)="navigate('/tasks/inbox')">
+                  <i class="ri-task-line"></i><span>Task Workspace</span>
+                </button>
+                <button type="button" class="adm-quick-action adm-quick-action--row" (click)="navigate('/admin/projects/all-projects')">
+                  <i class="ri-list-check-3"></i><span>All Projects</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ── Reject Modal ──────────────────────────────────────────────── -->
+<div class="adm-modal-overlay" *ngIf="showRejectModal" (click)="cancelReject()">
+  <div class="adm-modal" (click)="$event.stopPropagation()">
+    <div class="adm-modal-header">
+      <h5>Reject Timesheet</h5>
+      <button class="adm-modal-close" (click)="cancelReject()"><i class="ri-close-line"></i></button>
+    </div>
+    <div class="adm-modal-body">
+      <label class="adm-label">Reason (optional)</label>
+      <textarea class="adm-textarea" [(ngModel)]="rejectReason" placeholder="Enter rejection reason..." rows="3"></textarea>
+    </div>
+    <div class="adm-modal-footer">
+      <button class="adm-btn-ghost" (click)="cancelReject()">Cancel</button>
+      <button class="adm-btn-danger" [disabled]="rejectingId !== null" (click)="confirmReject()">
+        <span *ngIf="rejectingId === null">Reject Timesheet</span>
+        <span *ngIf="rejectingId !== null">Rejecting…</span>
+      </button>
+    </div>
+  </div>
+</div>

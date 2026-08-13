@@ -36,7 +36,7 @@ Activity is the **unified time tracking system** for PTS v2.
 4. Rejected week reverses counters; entries return to `draft`.
 5. `capPeriod` enforced: `project`, `day`, `week`, `month`.
 6. Multiple approved budgets → `budgetId` required.
-7. One running timer per user; max duration 16h (configurable via `PTS_V2_MAX_TIMER_MINUTES`).
+7. One running timer per user; max duration 8h. Running timers are automatically paused after 60 minutes without a heartbeat.
 8. UTC storage; week/day/month boundaries use `PTS_V2_BUSINESS_TIMEZONE` (default `UTC`).
 9. Week window start day is configurable via `PTS_V2_WEEK_START_DAY` (`monday` or `sunday`, default `monday`).
 10. Each timer stop creates a **separate** draft entry; entries are never auto-merged.
@@ -180,7 +180,8 @@ Days with no logged time appear with `totalMinutes: 0` and empty `projects`.
 |----------|---------|---------|
 | `PTS_V2_BUSINESS_TIMEZONE` | `UTC` | Week/day/month boundary calculations |
 | `PTS_V2_WEEK_START_DAY` | `monday` | Week window start (`monday` or `sunday`) |
-| `PTS_V2_MAX_TIMER_MINUTES` | `960` | Max timer duration (16h) |
+| `PTS_V2_MAX_TIMER_MINUTES` | `480` | Max timer duration, capped at 8h |
+| `PTS_V2_ABANDONED_TIMER_MINUTES` | `60` | Pause a running timer after this many minutes without a heartbeat |
 
 ---
 

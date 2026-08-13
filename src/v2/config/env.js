@@ -25,7 +25,8 @@ module.exports = {
     logLevel: process.env.PTS_V2_LOG_LEVEL || (nodeEnv === 'production' ? 'info' : 'debug'),
     businessTimezone: process.env.PTS_V2_BUSINESS_TIMEZONE || 'UTC',
     weekStartDay: resolveWeekStartDay(),
-    maxTimerMinutes: Number(process.env.PTS_V2_MAX_TIMER_MINUTES || 960),
+    maxTimerMinutes: Math.min(480, Number(process.env.PTS_V2_MAX_TIMER_MINUTES || 480)),
+    abandonedTimerMinutes: Number(process.env.PTS_V2_ABANDONED_TIMER_MINUTES || 60),
     retainerAutoRenewal: {
       enabled: process.env.PTS_V2_RETAINER_AUTO_RENEWAL !== 'false',
       cronExpression: process.env.PTS_V2_RETAINER_RENEWAL_CRON || '5 0 * * *',
