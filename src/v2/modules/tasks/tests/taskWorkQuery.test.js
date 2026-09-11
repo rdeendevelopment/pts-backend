@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildMatch, dueRange, isUnassignedCondition, assigneeCondition, isSuperAdminRequest, projectPersonalScopeCondition } = require('../services/taskWork.service');
+const { buildMatch, dueRange, isUnassignedCondition, assigneeCondition, isSuperAdminRequest, projectPersonalScopeCondition, assigneeSummaries } = require('../services/taskWork.service');
 const { dateKey } = require('../services/taskDueNotification.service');
 const { toTaskDto } = require('../dto/task.dto');
 
@@ -43,6 +43,23 @@ test('My Work includes primary and secondary assignees', () => {
     { primaryAssigneeId: userId },
     { 'assignees.userId': userId },
   ] });
+});
+
+test('Team Work summaries preserve every assignee and resolved profile data', () => {
+  const first = '507f1f77bcf86cd799439015';
+  const second = '507f1f77bcf86cd799439016';
+  const rows = assigneeSummaries({ assignees: [
+    { userId: first, name: 'Legacy First' },
+    { userId: second, email: 'legacy@example.com' },
+  ] }, {
+    [first]: { firstName: 'Amina', lastName: 'Ali', email: 'amina@example.com', avatarUrl: '/a.png' },
+    [second]: { displayName: 'Bilal Khan', email: 'bilal@example.com' },
+  });
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((row) => row.userId), [first, second]);
+  assert.equal(rows[0].email, 'amina@example.com');
+  assert.equal(rows[0].avatarUrl, '/a.png');
+  assert.equal(rows[1].email, 'bilal@example.com');
 });
 
 test('whole-project My Tasks access recognizes only super admins', () => {

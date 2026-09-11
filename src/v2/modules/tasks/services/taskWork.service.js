@@ -34,6 +34,19 @@ function avatarUrl(user) {
   return user?.avatarUrl || user?.imageUrl || null;
 }
 
+function assigneeSummaries(task, users = {}) {
+  return (task?.assignees || []).map((assignee) => {
+    const id = String(assignee.userId);
+    const user = users[id];
+    return {
+      userId: id,
+      name: displayName(user) || assignee.name || '',
+      email: user?.email || assignee.email || '',
+      avatarUrl: avatarUrl(user),
+    };
+  });
+}
+
 function dueRange(kind, now = new Date()) {
   const { start } = dayBounds(now);
   const tomorrow = new Date(start); tomorrow.setDate(tomorrow.getDate() + 1);
@@ -138,7 +151,9 @@ async function enrichSummaries(tasks, { currentUserId = null, privileged = false
       .select('taskId userId accessType').lean(),
   ]);
   const userIds = [...new Set(tasks.flatMap((t) => [
-    t.primaryAssigneeId || t.assignees?.[0]?.userId,
+    t.primaryAssigneeId,
+    ...(t.assignees || []).map((a) => a.userId),
+    t.reviewerId,
     ...collaborators.filter((c) => String(c.taskId) === String(t._id)).map((c) => c.userId),
   ]).filter(Boolean).map(String))];
   const users = await resolveUsersByIds(userIds);
@@ -155,6 +170,7 @@ async function enrichSummaries(tasks, { currentUserId = null, privileged = false
     const workflowStatus = statusMap.get(String(task.workflowStatusId));
     const primaryId = task.primaryAssigneeId || task.assignees?.[0]?.userId || null;
     const primaryUser = primaryId ? users[String(primaryId)] : null;
+    const assignees = assigneeSummaries(task, users);
     const taskCollabs = collabMap.get(String(task._id)) || [];
     const ownCollab = currentUserId
       ? taskCollabs.find((c) => String(c.userId) === String(currentUserId))
@@ -180,6 +196,8 @@ async function enrichSummaries(tasks, { currentUserId = null, privileged = false
         userId: String(primaryId), name: displayName(primaryUser), email: primaryUser?.email || '',
         avatarUrl: avatarUrl(primaryUser),
       } : null,
+      assignees,
+      reviewerId: task.reviewerId ? String(task.reviewerId) : null,
       collaborators: taskCollabs.slice(0, 3).map((c) => ({
         userId: String(c.userId), name: displayName(users[String(c.userId)]),
         email: users[String(c.userId)]?.email || '',
@@ -311,7 +329,7 @@ async function listTeamWork(req, query = {}) {
 async function list(match, query, context) {
   const pagination = parsePagination(query, { defaultLimit: 50 });
   const Task = getTaskModel();
-  const projection = { projectId: 1, workflowStatusId: 1, taskNumber: 1, title: 1, priority: 1, status: 1, dueDate: 1, primaryAssigneeId: 1, 'assignees.userId': 1, commentCount: 1, attachmentCount: { $size: { $ifNull: ['$attachments', []] } }, updatedAt: 1 };
+  const projection = { projectId: 1, workflowStatusId: 1, taskNumber: 1, title: 1, priority: 1, status: 1, dueDate: 1, primaryAssigneeId: 1, reviewerId: 1, assignees: 1, commentCount: 1, attachmentCount: { $size: { $ifNull: ['$attachments', []] } }, updatedAt: 1 };
   const defaultDirection = ['updatedAt', 'createdAt'].includes(query.sort) ? -1 : 1;
   const direction = query.dir ? (String(query.dir) === 'desc' ? -1 : 1) : defaultDirection;
   const sortField = ({ updatedAt: 'updatedAt', dueDate: 'dueDate', priority: 'priority', createdAt: 'createdAt', project: 'projectId', assignee: 'primaryAssigneeId' })[query.sort] || 'dueDate';
@@ -361,4 +379,4 @@ async function list(match, query, context) {
     groupCounts: context.summaryMatch ? { statuses: facets.statusGroups || [], projects: facets.projectGroups || [], priorities: facets.priorityGroups || [], people: personGroups, due: facets.dueGroups || [] } : undefined };
 }
 
-module.exports = { buildMatch, dueRange, isUnassignedCondition, assigneeCondition, isSuperAdminRequest, projectPersonalScopeCondition, enrichSummaries, listMyWork, listTeamWork };
+module.exports = { buildMatch, dueRange, isUnassignedCondition, assigneeCondition, isSuperAdminRequest, projectPersonalScopeCondition, assigneeSummaries, enrichSummaries, listMyWork, listTeamWork };

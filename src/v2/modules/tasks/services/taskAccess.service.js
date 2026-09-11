@@ -122,6 +122,7 @@ async function listTaskMembers(projectId) {
       taskMemberId: taskMember ? String(taskMember._id) : String(assignment._id),
       name: displayName(user),
       email: user?.email || '',
+      avatarUrl: user?.avatarUrl || user?.imageUrl || null,
       taskRole,
     };
   });

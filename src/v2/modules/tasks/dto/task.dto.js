@@ -22,6 +22,7 @@ function toTaskDto(task, { taskKeyPrefix } = {}) {
       userId: String(a.userId),
       name: a.name,
       email: a.email,
+      avatarUrl: a.avatarUrl || null,
       assignedAt: a.assignedAt,
       assignedBy: a.assignedBy ? String(a.assignedBy) : null,
     })),

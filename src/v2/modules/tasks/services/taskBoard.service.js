@@ -132,6 +132,7 @@ async function enrichTask(task, projectHint = null) {
       ...a,
       name: a.name || displayName(user),
       email: a.email || user?.email || '',
+      avatarUrl: user?.avatarUrl || user?.imageUrl || null,
     };
   });
   return toTaskDto({
@@ -284,6 +285,10 @@ async function createTask(projectId, payload, accountId, req) {
 
   const validatedAssigneeIds = await taskAccessService.assertAssigneesOnProject(projectId, assigneeIds);
   const assignees = await buildAssignees(validatedAssigneeIds, accountId);
+  const reviewerId = payload.reviewerId
+    ? await taskAccessService.resolveProjectMemberUserId(payload.reviewerId)
+    : null;
+  if (reviewerId) await taskAccessService.assertUserHasProjectAccess(projectId, reviewerId);
 
   const task = await taskRepository.createTask({
     projectId,
@@ -300,7 +305,7 @@ async function createTask(projectId, payload, accountId, req) {
     estimatedMinutes: payload.estimatedMinutes ?? null,
     assignees,
     ...(env.v2.taskFeatures.primaryAssigneeWrites ? { primaryAssigneeId: requestedPrimary } : {}),
-    reviewerId: payload.reviewerId || null,
+    reviewerId,
     checklist: payload.checklist || [],
     attachments: payload.attachments || [],
     createdBy: accountId,
@@ -373,6 +378,14 @@ async function updateTask(taskId, payload, accountId, req) {
   ];
   for (const key of allowed) {
     if (payload[key] !== undefined) updates[key] = payload[key];
+  }
+
+  if (payload.reviewerId !== undefined) {
+    const reviewerId = payload.reviewerId
+      ? await taskAccessService.resolveProjectMemberUserId(payload.reviewerId)
+      : null;
+    if (reviewerId) await taskAccessService.assertUserHasProjectAccess(task.projectId, reviewerId);
+    updates.reviewerId = reviewerId;
   }
 
   if (payload.assigneeIds !== undefined && !(req && isBoardShareClientUser(req))) {
