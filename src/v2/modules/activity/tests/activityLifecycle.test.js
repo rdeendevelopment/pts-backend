@@ -4,6 +4,7 @@ const timeWeekService = require('../services/timeWeek.service');
 const timeEntryService = require('../services/timeEntry.service');
 const activityErrorCodes = require('../errors/activityErrorCodes');
 const activitySocketEvents = require('../helpers/activitySocketEvents.helper');
+const activeTimerRepository = require('../repositories/activeTimer.repository');
 const {
   ACCOUNT_ID,
   USER_ID,
@@ -72,6 +73,18 @@ test('flow 2: submit week consumes counters and updates statuses', async () => {
   assert.equal(after.assignmentRemaining, store.assignment.allocation.allocatedMinutes - ENTRY_MINUTES);
   assert.ok(after.statsRecalcCalls > before.statsRecalcCalls);
   assert.equal(after.projectStatsConsumed, ENTRY_MINUTES);
+});
+
+test('unresolved automatic clock stop blocks timesheet submission with review action', async () => {
+  const req = makeReq();
+  const { week } = await createDraftWeekWithEntry(req);
+  activeTimerRepository.findActionableByUserId = async () => ({ status: 'needs_correction' });
+
+  await assert.rejects(
+    () => timeWeekService.submitWeek(week._id, ACCOUNT_ID, req),
+    (err) => err.message === 'Review 1 clock entry before submitting your timesheet.'
+      && err.details.reviewPath === '/user/time-tracking',
+  );
 });
 
 test('flow 3: reject submitted week reverses counters and unlocks entries', async () => {

@@ -7,7 +7,7 @@ function registerTimerRecoveryJob(agenda) {
   agenda.define(JOB_NAME, { concurrency: 1, lockLifetime: 2 * 60 * 1000 }, async () => {
     try {
       const result = await timerService.freezeOverdueTimers(new Date());
-      if (result.frozen > 0) info('Timers at the configured maximum duration automatically paused', result);
+      if (result.frozen > 0) info('Timers at the configured maximum duration automatically stopped for review', result);
     } catch (err) {
       error('Overdue timer recovery failed', { message: err.message });
       throw err;

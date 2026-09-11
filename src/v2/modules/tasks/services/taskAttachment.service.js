@@ -127,6 +127,18 @@ async function deleteTaskAttachment(taskId, attachmentId, req) {
 
   const task = await taskRepository.findById(id);
   await assertCanModifyAttachments(req, task);
+  const caps = await require('../helpers/taskMutationAccess.helper').resolveTaskCapabilities(req, task);
+  if (caps.collaboratorOnly) {
+    const attachment = task?.attachments?.id
+      ? task.attachments.id(attId)
+      : (task?.attachments || []).find((row) => String(row._id) === String(attId));
+    if (!attachment || String(attachment.uploadedBy || '') !== String(req.v2Auth.accountId)) {
+      throw new AppError('Task collaborators can only delete their own attachments', {
+        status: 403,
+        code: taskErrorCodes.TASK_ASSIGNEE_NOT_ON_PROJECT,
+      });
+    }
+  }
 
   const result = await taskRepository.removeAttachment(id, attId, {
     updatedBy: req.v2Auth.accountId,

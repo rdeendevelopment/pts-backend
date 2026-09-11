@@ -69,7 +69,6 @@ async function permanentDeleteProjectData(projectId) {
 
   await Promise.all([
     TaskComment.deleteMany({ projectId }),
-    TaskNotification.deleteMany({ projectId }),
     TaskCollaborator.deleteMany({ projectId }),
     TaskActivity.deleteMany({ projectId }),
     TaskMember.deleteMany({ projectId }),

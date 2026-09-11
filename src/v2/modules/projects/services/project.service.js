@@ -33,6 +33,7 @@ const projectAssignmentRepository = require('../repositories/projectAssignment.r
 const projectBudgetRepository = require('../repositories/projectBudget.repository');
 const projectStatsService = require('./projectStats.service');
 const projectEventService = require('./projectEvent.service');
+const notificationService = require('../../tasks/services/taskNotification.service');
 const retainerRenewalService = require('./retainerRenewal.service');
 const { canManageTasks, resolveUserIdFromAuth } = require('../../tasks/helpers/taskAccessScope.helper');
 const { canViewAllProjectTimeEntries } = require('../../activity/helpers/access.helper');
@@ -705,6 +706,18 @@ async function updateProjectStatus(projectId, status, accountId, req = null) {
     metadata: { from: project.status, to: status },
     req,
   });
+  if (project.status !== status) {
+    const assignments = await projectAssignmentRepository.listByProjectId(project._id, { status: 'active' });
+    const type = status === 'completed' ? 'project_completed' : 'project_status_changed';
+    const eventKey = status === 'completed' ? 'completed' : 'status_changed';
+    await Promise.all(assignments.map((assignment) => notificationService.createAndEmitNotification({
+    userId: assignment.userId, type, module: 'projects', eventKey, entityType: 'project',
+    entityId: String(project._id), projectId: project._id, actorId: accountId, title: project.name,
+    message: status === 'completed' ? `${project.name} was completed` : `${project.name} status changed from ${project.status} to ${status}`,
+    link: `/tasks/project/${project._id}`, metadata: { projectName: project.name, oldStatus: project.status, newStatus: status },
+    dedupeKey: `projects:${eventKey}:${project._id}:${project.status}:${status}:${updated.updatedAt}:${assignment.userId}`,
+    }).catch(() => null)));
+  }
 
   return getProjectById(updated._id);
 }

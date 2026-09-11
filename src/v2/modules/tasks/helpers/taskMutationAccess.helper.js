@@ -16,36 +16,41 @@ const {
   canEditProjectWithRole,
   normalizeAccessType,
 } = require('./taskCollaborator.helper');
+const env = require('../../../config/env');
 
 async function resolveProjectEditorRole(projectId, userId) {
   const taskMember = await taskMemberRepository.findByProjectAndUser(projectId, userId);
   if (taskMember?.role) return taskMember.role;
 
   const assignment = await projectAssignmentRepository.findByProjectAndUser(projectId, userId);
-  if (!assignment) return null;
+  if (!assignment || assignment.status !== 'active') return null;
   return mapAssignmentRoleToEditorRole(assignment.role);
 }
 
 async function resolveTaskCapabilities(req, task) {
+  const none = {
+    canView: false, canRead: false, canComment: false,
+    canUploadAttachment: false, canDeleteOwnAttachment: false,
+    canEdit: false, canMove: false, canComplete: false, canReopen: false,
+    canArchive: false, canRestore: false, canDelete: false,
+    canManageCollaborators: false, collaboratorOnly: false,
+  };
   if (!task) {
-    return {
-      canRead: false,
-      canComment: false,
-      canEdit: false,
-      canMove: false,
-      canArchive: false,
-      collaboratorOnly: false,
-    };
+    return none;
   }
 
   if (req && isBoardShareClientUser(req)) {
     const shareRole = req.boardShare?.role || 'viewer';
     const caps = mapShareRoleToTaskCapabilities(shareRole);
     return {
-      canRead: true,
+      ...none, canView: true, canRead: true,
       canComment: caps.canComment,
+      canUploadAttachment: caps.canEdit,
+      canDeleteOwnAttachment: caps.canEdit,
       canEdit: caps.canEdit,
       canMove: caps.canMove,
+      canComplete: caps.canMove,
+      canReopen: caps.canMove,
       canArchive: false,
       collaboratorOnly: false,
       shareRole,
@@ -55,11 +60,13 @@ async function resolveTaskCapabilities(req, task) {
 
   if (canManageTasks(req)) {
     return {
-      canRead: true,
+      ...none, canView: true, canRead: true,
       canComment: true,
+      canUploadAttachment: true, canDeleteOwnAttachment: true,
       canEdit: true,
-      canMove: true,
-      canArchive: true,
+      canMove: true, canComplete: true, canReopen: true,
+      canArchive: true, canRestore: true, canDelete: true,
+      canManageCollaborators: true,
       collaboratorOnly: false,
     };
   }
@@ -69,11 +76,13 @@ async function resolveTaskCapabilities(req, task) {
 
   if (canEditProjectWithRole(role)) {
     return {
-      canRead: true,
+      ...none, canView: true, canRead: true,
       canComment: true,
+      canUploadAttachment: true, canDeleteOwnAttachment: true,
       canEdit: true,
-      canMove: true,
-      canArchive: true,
+      canMove: true, canComplete: true, canReopen: true,
+      canArchive: true, canRestore: true, canDelete: false,
+      canManageCollaborators: true,
       collaboratorOnly: false,
       role,
     };
@@ -81,7 +90,7 @@ async function resolveTaskCapabilities(req, task) {
 
   if (role === 'viewer') {
     return {
-      canRead: true,
+      ...none, canView: true, canRead: true,
       canComment: false,
       canEdit: false,
       canMove: false,
@@ -91,29 +100,26 @@ async function resolveTaskCapabilities(req, task) {
     };
   }
 
-  const collaborator = await taskCollaboratorRepository.findActiveByTaskAndUser(task._id, userId);
+  const collaborator = env.v2.taskFeatures.collaboratorAccess
+    ? await taskCollaboratorRepository.findActiveByTaskAndUser(task._id, userId) : null;
   if (collaborator) {
     const accessType = normalizeAccessType(collaborator.accessType);
     const canEdit = accessType === 'edit';
     return {
-      canRead: true,
+      ...none, canView: true, canRead: true,
       canComment: ['comment', 'review', 'edit'].includes(accessType),
+      canUploadAttachment: true,
+      canDeleteOwnAttachment: true,
       canEdit,
       canMove: canEdit,
-      canArchive: false,
+      canComplete: canEdit,
+      canReopen: canEdit,
       collaboratorOnly: true,
       accessType,
     };
   }
 
-  return {
-    canRead: false,
-    canComment: false,
-    canEdit: false,
-    canMove: false,
-    canArchive: false,
-    collaboratorOnly: false,
-  };
+  return none;
 }
 
 function denyUnless(capability, message) {
@@ -133,6 +139,7 @@ async function assertCanMoveTask(req, task) {
 async function assertCanEditTask(req, task) {
   const caps = await resolveTaskCapabilities(req, task);
   denyUnless(caps.canEdit, 'You do not have permission to edit this task');
+  return caps;
 }
 
 async function assertCanCommentOnTask(req, task) {
@@ -145,10 +152,19 @@ async function assertCanArchiveTask(req, task) {
   denyUnless(caps.canArchive, 'You do not have permission to archive this task');
 }
 
+async function assertTaskCapability(req, task, capability) {
+  const caps = await resolveTaskCapabilities(req, task);
+  const aliases = { canRead: 'canView' };
+  const key = aliases[capability] || capability;
+  denyUnless(caps[key], 'You do not have permission to perform this task action');
+  return caps;
+}
+
 module.exports = {
   resolveTaskCapabilities,
   assertCanMoveTask,
   assertCanEditTask,
   assertCanCommentOnTask,
   assertCanArchiveTask,
+  assertTaskCapability,
 };

@@ -60,7 +60,7 @@ async function syncGoalCompletedToTask(goal, accountId) {
   const taskId = linkedTaskIdForGoal(goal);
   try {
     const taskBoardService = require('../../tasks/services/taskBoard.service');
-    await taskBoardService.completeTask(taskId, accountId, null);
+    await taskBoardService.completeTask(taskId, accountId, { taskSystem: true });
     await logTaskSyncEvent({
       event: 'my_day_goal_completed_task_completed',
       accountId,
@@ -93,7 +93,7 @@ async function syncGoalReopenedToTask(goal, accountId) {
   const taskId = linkedTaskIdForGoal(goal);
   try {
     const taskBoardService = require('../../tasks/services/taskBoard.service');
-    await taskBoardService.reopenTask(taskId, accountId, null);
+    await taskBoardService.reopenTask(taskId, accountId, { taskSystem: true });
     await logTaskSyncEvent({
       event: 'my_day_goal_reopened_task_reopened',
       accountId,

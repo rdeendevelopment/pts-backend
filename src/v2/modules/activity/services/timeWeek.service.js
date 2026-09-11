@@ -237,10 +237,13 @@ async function submitWeek(weekId, accountId, req) {
 
   const actionableTimer = await activeTimerRepository.findActionableByUserId(week.userId);
   if (actionableTimer) {
-    throw new AppError('Resolve the active timer before submitting the week', {
+    const needsReview = actionableTimer.status === 'needs_correction';
+    throw new AppError(needsReview
+      ? 'Review 1 clock entry before submitting your timesheet.'
+      : 'Resolve the active timer before submitting the week', {
       status: 409,
       code: activityErrorCodes.ACTIVITY_TIMER_ALREADY_RUNNING,
-      details: { timerStatus: actionableTimer.status },
+      details: { timerStatus: actionableTimer.status, reviewPath: needsReview ? '/user/time-tracking' : null },
     });
   }
 
@@ -311,6 +314,7 @@ async function submitWeek(weekId, accountId, req) {
   activitySocketEvents.emitActivityWeekSubmitted(result, projectIds);
   await taskNotificationService.notifyAdmins({
     type: 'activity_week_submitted',
+    module: 'timesheets', eventKey: 'submitted',
     title: 'Week submitted for review',
     message: `${req.v2Auth?.displayName || 'A team member'} submitted ${result.weekStartDate} - ${result.weekEndDate}`,
     entityType: 'activity_week',
@@ -321,6 +325,8 @@ async function submitWeek(weekId, accountId, req) {
     actorName: req.v2Auth?.displayName || '',
     priority: 'normal',
     link: '/admin/manage-activity/team-activity',
+    metadata: { periodLabel: `${result.weekStartDate} - ${result.weekEndDate}`, userName: req.v2Auth?.displayName || '' },
+    dedupeKey: `timesheets:submitted:${week._id}:${result.submittedAt || result.updatedAt}`,
   });
   return result;
 }
@@ -427,6 +433,7 @@ async function approveWeek(weekId, accountId, req) {
   await taskNotificationService.createAndEmitNotification({
     userId: week.userId,
     type: 'activity_week_approved',
+    module: 'timesheets', eventKey: 'approved',
     title: 'Week approved',
     message: `${req.v2Auth?.displayName || 'Admin'} approved your week ${result.weekStartDate} - ${result.weekEndDate}`,
     entityType: 'activity_week',
@@ -437,6 +444,8 @@ async function approveWeek(weekId, accountId, req) {
     actorName: req.v2Auth?.displayName || '',
     priority: 'normal',
     link: '/user/manage-activity/view-timesheet',
+    metadata: { periodLabel: `${result.weekStartDate} - ${result.weekEndDate}` },
+    dedupeKey: `timesheets:approved:${week._id}:${result.approvedAt || result.updatedAt}`,
   });
   return result;
 }
@@ -493,6 +502,7 @@ async function rejectWeek(weekId, accountId, req, rejectionReason = null) {
   await taskNotificationService.createAndEmitNotification({
     userId: week.userId,
     type: 'activity_week_rejected',
+    module: 'timesheets', eventKey: 'rejected',
     title: 'Week needs changes',
     message: `${req.v2Auth?.displayName || 'Admin'} rejected your week ${result.weekStartDate} - ${result.weekEndDate}`,
     entityType: 'activity_week',
@@ -503,7 +513,8 @@ async function rejectWeek(weekId, accountId, req, rejectionReason = null) {
     actorName: req.v2Auth?.displayName || '',
     priority: 'high',
     link: '/user/manage-activity/view-timesheet',
-    metadata: { rejectionReason: rejectionReason || null },
+    metadata: { rejectionReason: rejectionReason || null, periodLabel: `${result.weekStartDate} - ${result.weekEndDate}` },
+    dedupeKey: `timesheets:rejected:${week._id}:${result.rejectedAt || result.updatedAt}`,
   });
   return result;
 }

@@ -57,6 +57,12 @@ const ActiveTimerSchema = new Schema(
     pausedAt: { type: Date, default: null },
     frozenAt: { type: Date, default: null },
     correctionReason: { type: String, default: null, trim: true },
+    autoStopped: { type: Boolean, default: false },
+    autoStopReason: { type: String, default: null, trim: true },
+    autoStoppedAt: { type: Date, default: null },
+    reviewResolvedAt: { type: Date, default: null },
+    reviewResolvedBy: { type: Schema.Types.ObjectId, ref: 'PtsAccount', default: null },
+    correctedEndAt: { type: Date, default: null },
     stoppedAt: { type: Date, default: null },
     description: { type: String, default: null, trim: true },
     revision: { type: Number, default: 0, min: 0 },
@@ -121,6 +127,11 @@ ActiveTimerSchema.index(
 ActiveTimerSchema.index(
   { userId: 1, status: 1, pausedAt: -1 },
   { name: 'pts_active_timers_user_paused_list' },
+);
+
+ActiveTimerSchema.index(
+  { status: 1, startedAt: 1 },
+  { name: 'pts_active_timers_running_expiry', partialFilterExpression: { status: 'running', isDeleted: false } },
 );
 
 async function ensureActiveTimerIndexes() {

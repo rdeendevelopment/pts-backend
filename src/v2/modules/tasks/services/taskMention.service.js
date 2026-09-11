@@ -4,6 +4,7 @@ const projectAssignmentRepository = require('../../projects/repositories/project
 const { getProjectModel } = require('../../projects/models/project.model');
 const { getTaskModel } = require('../models/task.model');
 const taskCommentRepository = require('../repositories/taskComment.repository');
+const taskCollaboratorRepository = require('../repositories/taskCollaborator.repository');
 const {
   canManageTasks,
   findUserIdFromAuth,
@@ -74,9 +75,12 @@ async function listMentions(req, query = {}) {
     };
   }
 
-  const accessibleProjectIds = isManager
-    ? []
-    : await projectAssignmentRepository.listActiveProjectIdsByUserId(userId);
+  const [accessibleProjectIds, collaboratorTaskIds] = isManager
+    ? [[], []]
+    : await Promise.all([
+      projectAssignmentRepository.listActiveProjectIdsByUserId(userId),
+      taskCollaboratorRepository.listActiveTaskIdsByUserId(userId),
+    ]);
 
   const taskIds = [...new Set(comments.map((row) => String(row.taskId)).filter(Boolean))];
   const authorIds = [...new Set(comments.map((row) => String(row.authorId)).filter(Boolean))];
@@ -99,7 +103,7 @@ async function listMentions(req, query = {}) {
 
   for (const comment of comments) {
     const task = taskMap[String(comment.taskId)];
-    if (!canViewMentionTask(task, userId, accessibleProjectIds, isManager)) {
+    if (!canViewMentionTask(task, userId, accessibleProjectIds, isManager, collaboratorTaskIds)) {
       continue;
     }
 

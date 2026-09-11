@@ -8,6 +8,7 @@ const timeEntryService = require('./timeEntry.service');
 const timeWeekService = require('./timeWeek.service');
 const { toActiveTimerDto } = require('../dto/activity.dto');
 const activitySocketEvents = require('../helpers/activitySocketEvents.helper');
+const taskNotificationService = require('../../tasks/services/taskNotification.service');
 const v2Database = require('../../../database/connection');
 const {
   buildTimerContextFields,
@@ -110,13 +111,62 @@ async function assertTimerOwner(timer, req) {
 async function getActiveTimerForUser(userId) {
   let timer = await activeTimerRepository.findActionableByUserId(userId);
   if (timer?.status === 'running') {
-    const now = new Date();
-    const elapsedSeconds = getElapsedSeconds(timer, now);
-    if (elapsedSeconds >= getTimerLimitSeconds(timer)) {
-      timer = await pauseRunningTimerAt(timer, now, null, timer.limitReason || 'maximum_duration');
-    }
+    ({ timer } = await autoStopExpiredTimer(timer, new Date()));
   }
   return toActiveTimerDto(timer);
+}
+
+function timerLimitBoundary(timer) {
+  const remainingSeconds = Math.max(0, getTimerLimitSeconds(timer) - Number(timer.accumulatedSeconds || 0));
+  return new Date(new Date(timer.startedAt).getTime() + remainingSeconds * 1000);
+}
+
+async function autoStopExpiredTimer(timer, observedAt = new Date(), accountId = null) {
+  if (!timer || timer.status !== 'running' || observedAt < timerLimitBoundary(timer)) {
+    return { timer, transitioned: false };
+  }
+  const boundary = timerLimitBoundary(timer);
+  const limitSeconds = getTimerLimitSeconds(timer);
+  if (timer.limitReason && timer.limitReason !== 'maximum_duration') {
+    const paused = await activeTimerRepository.updateTimer(timer._id, {
+      status: 'paused', accumulatedSeconds: limitSeconds, pausedAt: boundary,
+      autoPauseReason: timer.limitReason, ...(accountId ? { updatedBy: accountId } : {}),
+    }, null, { expectedStatus: 'running' });
+    const canonicalPaused = paused || await activeTimerRepository.findById(timer._id);
+    if (paused) activitySocketEvents.emitActivityTimerStarted(timer.userId, toActiveTimerDto(paused));
+    return { timer: canonicalPaused, transitioned: Boolean(paused) };
+  }
+  const updated = await activeTimerRepository.updateTimer(timer._id, {
+    status: 'needs_correction',
+    accumulatedSeconds: limitSeconds,
+    pausedAt: boundary,
+    frozenAt: boundary,
+    stoppedAt: boundary,
+    correctionReason: 'continuous_limit',
+    autoStopped: true,
+    autoStopReason: 'continuous_limit',
+    autoStoppedAt: boundary,
+    ...(accountId ? { updatedBy: accountId } : {}),
+  }, null, { expectedStatus: 'running' });
+  const canonical = updated || await activeTimerRepository.findById(timer._id);
+  if (updated) {
+    const dto = toActiveTimerDto(updated);
+    activitySocketEvents.emitActivityTimerStopped(timer.userId, dto);
+    await taskNotificationService.createAndEmitNotification({
+      userId: timer.userId,
+      type: 'activity_clock_auto_stopped',
+      module: 'timesheets',
+      eventKey: 'clock_auto_stopped',
+      entityType: 'activity_timer',
+      entityId: String(timer._id),
+      title: 'Timer automatically stopped',
+      message: 'Your timer was automatically stopped after 8 hours. Please review your time.',
+      link: '/user/time-tracking',
+      dedupeKey: `timesheets:clock_auto_stopped:${timer._id}`,
+      metadata: { startedAt: timer.sessionStartedAt || timer.startedAt, autoStoppedAt: boundary },
+    }).catch(() => null);
+  }
+  return { timer: canonical, transitioned: Boolean(updated) };
 }
 
 async function pauseRunningTimerAt(timer, at, accountId = null, reason = 'automatic_pause') {
@@ -155,20 +205,8 @@ async function freezeOverdueTimers(at = new Date()) {
   const timers = await activeTimerRepository.listRunning();
   let frozen = 0;
   for (const timer of timers) {
-    const elapsedSeconds = getElapsedSeconds(timer, at);
-    let pauseAt = null;
-    let reason = null;
-    if (elapsedSeconds >= getTimerLimitSeconds(timer)) {
-      const segmentAllowance = Math.max(0, getTimerLimitSeconds(timer) - Number(timer.accumulatedSeconds || 0));
-      pauseAt = new Date(new Date(timer.startedAt).getTime() + segmentAllowance * 1000);
-      reason = timer.limitReason || 'maximum_duration';
-    }
-    if (!pauseAt) continue;
-    const updated = await pauseRunningTimerAt(timer, pauseAt, null, reason);
-    if (updated?.status === 'paused') {
-      frozen += 1;
-      activitySocketEvents.emitActivityTimerStarted(timer.userId, toActiveTimerDto(updated));
-    }
+    const result = await autoStopExpiredTimer(timer, at);
+    if (result.transitioned) frozen += 1;
   }
   return { inspected: timers.length, frozen };
 }
@@ -192,7 +230,8 @@ async function startTimer(payload, accountId, req) {
     taskId: payload.taskId,
   });
 
-  const actionable = await activeTimerRepository.findActionableByUserId(userId);
+  let actionable = await activeTimerRepository.findActionableByUserId(userId);
+  if (actionable?.status === 'running') ({ timer: actionable } = await autoStopExpiredTimer(actionable, new Date(), accountId));
   if (actionable) {
     const needsCorrection = actionable.status === 'needs_correction';
     if (needsCorrection) {
@@ -300,10 +339,8 @@ async function pauseTimer(timerId, accountId, req) {
   const now = new Date();
   const accumulatedSeconds = getElapsedSeconds(timer, now);
   if (accumulatedSeconds >= getTimerLimitSeconds(timer)) {
-    const paused = await pauseRunningTimerAt(timer, now, accountId, timer.limitReason || 'maximum_duration');
-    const timerDto = toActiveTimerDto(paused);
-    activitySocketEvents.emitActivityTimerStarted(req.v2Activity.userId, timerDto);
-    return timerDto;
+    const { timer: stopped } = await autoStopExpiredTimer(timer, now, accountId);
+    return toActiveTimerDto(stopped);
   }
 
   let updated;
@@ -422,6 +459,8 @@ async function resumeTimer(timerId, accountId, req) {
 async function stopTimer(timerId, accountId, req) {
   let timer = await assertTimerOwner(await activeTimerRepository.findById(timerId), req);
 
+  if (timer.status === 'running') ({ timer } = await autoStopExpiredTimer(timer, new Date(), accountId));
+
   if (timer.status === 'stopped' || timer.status === 'cancelled') {
     return finalizeStoppedTimer(timer, accountId);
   }
@@ -493,10 +532,12 @@ async function finalizeStoppedTimer(timer, accountId) {
 }
 
 async function heartbeatTimer(timerId, accountId, req) {
-  const timer = await assertTimerOwner(await activeTimerRepository.findById(timerId), req);
+  let timer = await assertTimerOwner(await activeTimerRepository.findById(timerId), req);
   if (timer.status !== 'running') return toActiveTimerDto(timer);
 
   const now = new Date();
+  ({ timer } = await autoStopExpiredTimer(timer, now, accountId));
+  if (timer.status !== 'running') return toActiveTimerDto(timer);
   const updated = await activeTimerRepository.updateTimer(timer._id, {
     lastHeartbeatAt: now,
     updatedBy: accountId,
@@ -506,10 +547,11 @@ async function heartbeatTimer(timerId, accountId, req) {
 
 async function switchTimer(payload, accountId, req) {
   const userId = req.v2Activity.userId;
-  const current = await assertTimerOwner(
+  let current = await assertTimerOwner(
     await activeTimerRepository.findById(payload.currentTimerId),
     req,
   );
+  if (current.status === 'running') ({ timer: current } = await autoStopExpiredTimer(current, new Date(), accountId));
   if (current.status !== 'running' && current.status !== 'paused') {
     if (current.status === 'stopped') {
       const canonical = await activeTimerRepository.findRunningByUserId(userId);
@@ -636,33 +678,25 @@ async function correctTimer(timerId, payload, accountId, req) {
   }
 
   const description = payload.description ?? timer.description;
-  const entry = await timeEntryService.createEntry({
-    projectId: timer.projectId,
-    assignmentId: timer.assignmentId,
-    budgetId: timer.budgetId,
-    taskId: timer.taskId,
-    workCategoryId: timer.workCategoryId,
-    entryDate: correctedEnd,
-    startTime: sessionStart,
-    endTime: correctedEnd,
-    minutes: elapsedMinutes,
-    description,
-    source: 'timer',
-  }, accountId, req);
+  const entry = await timeEntryService.createCorrectedTimerEntry(timer, correctedEnd, description, accountId, req);
 
   const stoppedTimerDoc = await activeTimerRepository.updateTimer(
     timer._id,
     {
       status: 'stopped',
       stoppedAt: correctedEnd,
+      accumulatedSeconds: elapsedMinutes * 60,
       description,
-      correctionReason: null,
+      correctionReason: 'continuous_limit_resolved',
+      reviewResolvedAt: new Date(),
+      reviewResolvedBy: accountId,
+      correctedEndAt: correctedEnd,
       updatedBy: accountId,
     },
     null,
     { expectedStatus: 'needs_correction' },
   );
-  const stoppedTimer = toActiveTimerDto(stoppedTimerDoc);
+  const stoppedTimer = toActiveTimerDto(stoppedTimerDoc || await activeTimerRepository.findById(timer._id));
   activitySocketEvents.emitActivityTimerStopped(req.v2Activity.userId, stoppedTimer);
   return { timer: stoppedTimer, entry };
 }
@@ -720,5 +754,7 @@ module.exports = {
   discardTimer,
   cancelTimer,
   getElapsedSeconds,
+  timerLimitBoundary,
+  autoStopExpiredTimer,
   freezeOverdueTimers,
 };

@@ -1,9 +1,7 @@
 const { AppError } = require('../../../kernel/errors');
 const taskErrorCodes = require('../errors/taskErrorCodes');
-const taskAccessService = require('../services/taskAccess.service');
 const { assertTaskReadable } = require('./taskCollaboratorAccess.helper');
-const { canManageTasks, resolveUserIdFromAuth } = require('./taskAccessScope.helper');
-const { assertCanCommentOnTask, assertCanEditTask } = require('./taskMutationAccess.helper');
+const { assertCanCommentOnTask, assertTaskCapability } = require('./taskMutationAccess.helper');
 const { isBoardShareClientUser } = require('./taskBoardShareAccess.helper');
 
 async function assertCanModifyAttachments(req, task) {
@@ -21,17 +19,7 @@ async function assertCanModifyAttachments(req, task) {
     });
   }
 
-  if (canManageTasks(req)) {
-    return;
-  }
-
-  if (isBoardShareClientUser(req)) {
-    await assertCanEditTask(req, task);
-    return;
-  }
-
-  const userId = await resolveUserIdFromAuth(req.v2Auth.accountId);
-  await taskAccessService.assertUserHasProjectAccess(task.projectId, userId);
+  await assertTaskCapability(req, task, 'canUploadAttachment');
 }
 
 async function assertCanUploadCommentAttachment(req, task) {

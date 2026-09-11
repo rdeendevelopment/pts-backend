@@ -143,6 +143,7 @@ test('startTimer emits activity.timer.started through helper', async () => {
     createdAt: new Date(),
     updatedAt: new Date(),
   });
+  activeTimerRepository.findPausedByContext = async () => null;
 
   await timerService.startTimer({
     projectId: PROJECT_ID,

@@ -15,11 +15,19 @@ function parseNotificationListQuery(query = {}) {
     || query.unread === '1'
     || query.isRead === 'false';
 
+  const readState = ['all', 'read', 'unread'].includes(query.readState) ? query.readState : 'all';
   return {
     page,
     limit,
     skip: (page - 1) * limit,
     unreadOnly,
+    readState,
+    category: query.category || null,
+    module: query.module || null,
+    projectId: query.projectId || null,
+    search: String(query.search || '').trim().slice(0, 120),
+    dateFrom: query.dateFrom || null,
+    dateTo: query.dateTo || null,
   };
 }
 
@@ -47,7 +55,7 @@ async function resolveNotificationUserId(req, findUserIdFromAuth) {
   return userId;
 }
 
-function canViewMentionTask(task, userId, accessibleProjectIds = [], isManager = false) {
+function canViewMentionTask(task, userId, accessibleProjectIds = [], isManager = false, collaboratorTaskIds = []) {
   if (!task) return false;
   if (isManager) return true;
 
@@ -65,6 +73,8 @@ function canViewMentionTask(task, userId, accessibleProjectIds = [], isManager =
   if (task.reviewerId && String(task.reviewerId) === uid) {
     return true;
   }
+
+  if (collaboratorTaskIds.some((id) => String(id) === String(task._id))) return true;
 
   return false;
 }

@@ -63,11 +63,42 @@ async function enrichActivities(activities = []) {
 }
 
 async function getActivityFeed(req) {
-  const taskIds = await listScopedTaskIds(req);
-  if (!taskIds.length) return [];
+  const query = req.query || {};
+  const page = Math.max(1, Number(query.page) || 1);
+  const limit = Math.min(50, Math.max(1, Number(query.limit) || 25));
+  let taskIds = await listScopedTaskIds(req);
 
-  const activities = await taskActivityRepository.listByTaskIds(taskIds, { limit: 100 });
-  return enrichActivities(activities);
+  if (query.search?.trim() && taskIds.length) {
+    const escaped = query.search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const Task = require('../models/task.model').getTaskModel();
+    const matching = await Task.find({
+      _id: { $in: taskIds },
+      title: { $regex: escaped, $options: 'i' },
+    }).select('_id').lean();
+    taskIds = matching.map((task) => task._id);
+  }
+
+  const dateTo = query.dateTo ? new Date(query.dateTo) : null;
+  if (dateTo) dateTo.setHours(23, 59, 59, 999);
+  const result = await taskActivityRepository.listPageByTaskIds(taskIds, {
+    page,
+    limit,
+    projectId: query.projectId || null,
+    eventType: query.eventType || null,
+    dateFrom: query.dateFrom ? new Date(query.dateFrom) : null,
+    dateTo,
+  });
+  const items = await enrichActivities(result.items);
+  return {
+    items,
+    pagination: {
+      page,
+      limit,
+      total: result.total,
+      totalPages: Math.ceil(result.total / limit),
+      hasMore: page * limit < result.total,
+    },
+  };
 }
 
 async function getActivitySummary(req) {

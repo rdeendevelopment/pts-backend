@@ -13,14 +13,20 @@ const TaskNotificationSchema = new Schema(
     actorId: { type: Schema.Types.ObjectId, default: null, index: true },
     actorName: { type: String, default: null },
     module: { type: String, default: null, index: true },
+    eventKey: { type: String, default: null, index: true },
     priority: { type: String, default: 'normal', index: true },
     link: { type: String, default: null },
     type: { type: String, required: true, trim: true },
+    category: { type: String, default: 'task_lifecycle', index: true },
     title: { type: String, default: null },
     body: { type: String, default: null },
     isRead: { type: Boolean, default: false, index: true },
     readAt: { type: Date, default: null },
     metadata: { type: Schema.Types.Mixed, default: {} },
+    dedupeKey: { type: String, default: null },
+    aggregationKey: { type: String, default: null, index: true },
+    occurrenceCount: { type: Number, default: 1, min: 1 },
+    lastOccurredAt: { type: Date, default: Date.now },
   },
   {
     collection: 'pts_task_notifications',
@@ -29,6 +35,13 @@ const TaskNotificationSchema = new Schema(
 );
 
 TaskNotificationSchema.index({ userId: 1, isRead: 1, createdAt: -1 });
+TaskNotificationSchema.index({ userId: 1, category: 1, createdAt: -1 });
+TaskNotificationSchema.index({ userId: 1, module: 1, createdAt: -1 });
+TaskNotificationSchema.index({ userId: 1, createdAt: -1 });
+TaskNotificationSchema.index(
+  { userId: 1, dedupeKey: 1 },
+  { unique: true, partialFilterExpression: { dedupeKey: { $type: 'string' } } }
+);
 
 async function ensureTaskNotificationIndexes() {
   const TaskNotification = getV2Model('PtsTaskNotification', TaskNotificationSchema);

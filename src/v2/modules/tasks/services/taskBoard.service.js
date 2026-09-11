@@ -10,6 +10,15 @@ const taskAccessService = require('./taskAccess.service');
 const projectsModule = require('../../projects');
 const taskWorkflowService = require('./taskWorkflow.service');
 const taskActivityService = require('./taskActivity.service');
+const taskNotificationPolicy = require('./taskNotificationPolicy.service');
+const { warn } = require('../../../kernel/logger');
+const env = require('../../../config/env');
+
+async function notifyBestEffort(operation, context = {}) {
+  try { await operation(); } catch (err) {
+    warn('Task notification delivery skipped', { ...context, message: err.message });
+  }
+}
 const {
   assertCanMoveTask,
   assertCanCreateTaskOnProject,
@@ -17,6 +26,7 @@ const {
 const {
   assertCanEditTask,
   assertCanArchiveTask,
+  resolveTaskCapabilities,
 } = require('../helpers/taskMutationAccess.helper');
 const {
   displayName,
@@ -228,9 +238,7 @@ async function resolveCreatorUserId(accountId) {
 
 async function createTask(projectId, payload, accountId, req) {
   await taskAccessService.assertProjectExists(projectId);
-  if (req) {
-    await assertCanCreateTaskOnProject(req, projectId);
-  }
+  await assertCanCreateTaskOnProject(req, projectId);
   const creatorUserId = await resolveCreatorUserId(accountId);
 
   const { statuses, workflow } = await taskWorkflowService.getOrCreateProjectWorkflow(projectId);
@@ -255,10 +263,23 @@ async function createTask(projectId, payload, accountId, req) {
   const explicitAssigneeIds = await taskAccessService.normalizeAssigneeUserIds(
     payload.assigneeIds || payload.assignees || [],
   );
+  let requestedPrimary = env.v2.taskFeatures.primaryAssigneeWrites && payload.primaryAssigneeId
+    ? await taskAccessService.resolveProjectMemberUserId(payload.primaryAssigneeId)
+    : explicitAssigneeIds[0] || null;
+  if (requestedPrimary) {
+    await taskAccessService.assertUserHasProjectAccess(projectId, requestedPrimary);
+  }
   const assigneeIds = [...explicitAssigneeIds];
+  if (requestedPrimary && !assigneeIds.includes(String(requestedPrimary))) {
+    assigneeIds.unshift(String(requestedPrimary));
+  }
   const creatorOnProject = await projectsModule.getAssignmentForUser(projectId, creatorUserId);
-  if (creatorOnProject && !assigneeIds.includes(String(creatorUserId))) {
+  // Legacy unassigned creates still include their creator. Explicit accountability is never changed.
+  if (creatorOnProject
+      && !assigneeIds.includes(String(creatorUserId))
+      && (!env.v2.taskFeatures.primaryAssigneeWrites || (!requestedPrimary && !assigneeIds.length))) {
     assigneeIds.push(String(creatorUserId));
+    requestedPrimary = String(creatorUserId);
   }
 
   const validatedAssigneeIds = await taskAccessService.assertAssigneesOnProject(projectId, assigneeIds);
@@ -278,6 +299,7 @@ async function createTask(projectId, payload, accountId, req) {
     startDate: payload.startDate || null,
     estimatedMinutes: payload.estimatedMinutes ?? null,
     assignees,
+    ...(env.v2.taskFeatures.primaryAssigneeWrites ? { primaryAssigneeId: requestedPrimary } : {}),
     reviewerId: payload.reviewerId || null,
     checklist: payload.checklist || [],
     attachments: payload.attachments || [],
@@ -294,6 +316,10 @@ async function createTask(projectId, payload, accountId, req) {
   });
 
   const taskDto = await enrichTask(task);
+  await notifyBestEffort(() => taskNotificationPolicy.taskUpdated({
+    before: { _id: task._id, projectId: task.projectId, assignees: [], primaryAssigneeId: null },
+    after: task, actorId: accountId, fields: ['primaryAssigneeId'],
+  }), { taskId: String(task._id), event: 'created' });
   emitTaskCreated(projectId, taskDto);
   return taskDto;
 }
@@ -313,6 +339,8 @@ async function getTaskById(taskId, req = null) {
   if (req && isBoardShareClientUser(req)) {
     const shareRole = req.boardShare?.role || 'viewer';
     taskDto.capabilities = mapShareRoleToTaskCapabilities(shareRole);
+  } else if (req) {
+    taskDto.capabilities = await resolveTaskCapabilities(req, task);
   }
   return taskDto;
 }
@@ -322,8 +350,14 @@ async function updateTask(taskId, payload, accountId, req) {
   if (!task) {
     throw new AppError('Task not found', { status: 404, code: taskErrorCodes.TASK_NOT_FOUND });
   }
-  if (req) {
-    await assertCanEditTask(req, task);
+  const capabilities = await assertCanEditTask(req, task);
+  if (capabilities.collaboratorOnly
+      && ['assigneeIds', 'primaryAssigneeId', 'reviewerId', 'attachments']
+        .some((field) => payload[field] !== undefined)) {
+    throw new AppError('Task collaborators cannot change responsibility or replace attachments', {
+      status: 403,
+      code: taskErrorCodes.TASK_ASSIGNEE_NOT_ON_PROJECT,
+    });
   }
   if (task.status === 'archived') {
     throw new AppError('Archived tasks cannot be edited', {
@@ -347,6 +381,22 @@ async function updateTask(taskId, payload, accountId, req) {
       payload.assigneeIds || [],
     );
     updates.assignees = await buildAssignees(assigneeIds, accountId);
+    if (payload.primaryAssigneeId === undefined) {
+      updates.primaryAssigneeId = assigneeIds[0] || null;
+    }
+  }
+
+  if (env.v2.taskFeatures.primaryAssigneeWrites && payload.primaryAssigneeId !== undefined && !(req && isBoardShareClientUser(req))) {
+    const primaryId = payload.primaryAssigneeId
+      ? await taskAccessService.resolveProjectMemberUserId(payload.primaryAssigneeId)
+      : null;
+    if (primaryId) await taskAccessService.assertUserHasProjectAccess(task.projectId, primaryId);
+    updates.primaryAssigneeId = primaryId;
+    if (primaryId) {
+      const legacyIds = (updates.assignees || task.assignees || []).map((a) => String(a.userId || a));
+      const compatibleIds = [String(primaryId), ...legacyIds.filter((id) => id !== String(primaryId))];
+      updates.assignees = await buildAssignees(compatibleIds, accountId);
+    }
   }
 
   const updated = await taskRepository.updateTask(taskId, updates);
@@ -360,6 +410,9 @@ async function updateTask(taskId, payload, accountId, req) {
   });
 
   const taskDto = await enrichTask(updated);
+  await notifyBestEffort(() => taskNotificationPolicy.taskUpdated({
+    before: task, after: updated, actorId: accountId, fields: Object.keys(updates),
+  }), { taskId: String(taskId), event: 'updated' });
   emitTaskUpdated(task.projectId, taskDto);
   return taskDto;
 }
@@ -411,6 +464,7 @@ async function moveTask(taskId, workflowStatusId, accountId, req) {
   }
 
   const updated = await taskRepository.updateTask(taskId, updates);
+  const sourceStatus = await taskWorkflowStatusRepository.findById(task.workflowStatusId);
 
   await taskActivityService.logTaskActivity({
     taskId,
@@ -425,6 +479,22 @@ async function moveTask(taskId, workflowStatusId, accountId, req) {
   });
 
   const taskDto = await enrichTask(updated);
+  const wasCompleted = task.status === 'completed';
+  const isCompleted = updated.status === 'completed';
+  if (!wasCompleted && isCompleted) {
+    await notifyBestEffort(() => taskNotificationPolicy.lifecycle(
+      updated, accountId, 'task_completed', 'Task was completed'
+    ), { taskId: String(taskId), event: 'completed' });
+  } else if (wasCompleted && !isCompleted) {
+    await notifyBestEffort(() => taskNotificationPolicy.lifecycle(
+      updated, accountId, 'task_reopened', 'Task was reopened'
+    ), { taskId: String(taskId), event: 'reopened' });
+  } else {
+    await notifyBestEffort(() => taskNotificationPolicy.workflowMoved({
+      before: { ...task.toObject(), workflowStatusName: sourceStatus?.name || '' },
+      after: updated, targetStatus, actorId: accountId,
+    }), { taskId: String(taskId), event: 'moved' });
+  }
   emitTaskMoved(task.projectId, taskDto, {
     fromStatusId: String(task.workflowStatusId),
     toStatusId: String(workflowStatusId),
@@ -445,9 +515,7 @@ async function completeTask(taskId, accountId, req) {
   if (!task) {
     throw new AppError('Task not found', { status: 404, code: taskErrorCodes.TASK_NOT_FOUND });
   }
-  if (req) {
-    await assertCanEditTask(req, task);
-  }
+  if (req?.taskSystem !== true) await assertCanEditTask(req, task);
 
   const updated = await taskRepository.updateTask(taskId, {
     status: 'completed',
@@ -464,6 +532,9 @@ async function completeTask(taskId, accountId, req) {
   });
 
   const taskDto = await enrichTask(updated);
+  await notifyBestEffort(() => taskNotificationPolicy.lifecycle(
+    updated, accountId, 'task_completed', 'Task was completed'
+  ), { taskId: String(taskId), event: 'completed' });
   emitTaskCompleted(task.projectId, taskDto);
   await syncMyDayForAssignees(updated, task.status, accountId);
 
@@ -475,9 +546,7 @@ async function reopenTask(taskId, accountId, req) {
   if (!task) {
     throw new AppError('Task not found', { status: 404, code: taskErrorCodes.TASK_NOT_FOUND });
   }
-  if (req) {
-    await assertCanEditTask(req, task);
-  }
+  if (req?.taskSystem !== true) await assertCanEditTask(req, task);
 
   if (task.status !== 'completed') {
     return enrichTask(task);
@@ -513,6 +582,9 @@ async function reopenTask(taskId, accountId, req) {
   });
 
   const taskDto = await enrichTask(updated);
+  await notifyBestEffort(() => taskNotificationPolicy.lifecycle(
+    updated, accountId, 'task_reopened', 'Task was reopened'
+  ), { taskId: String(taskId), event: 'reopened' });
   emitTaskUpdated(task.projectId, taskDto);
   await syncMyDayForAssignees(updated, previousStatus, accountId);
 
@@ -530,9 +602,7 @@ async function archiveTask(taskId, accountId, req) {
       code: taskErrorCodes.TASK_ASSIGNEE_NOT_ON_PROJECT,
     });
   }
-  if (req) {
-    await assertCanArchiveTask(req, task);
-  }
+  await assertCanArchiveTask(req, task);
 
   const updated = await taskRepository.updateTask(taskId, {
     status: 'archived',
@@ -548,6 +618,9 @@ async function archiveTask(taskId, accountId, req) {
   });
 
   const taskDto = await enrichTask(updated);
+  await notifyBestEffort(() => taskNotificationPolicy.lifecycle(
+    updated, accountId, 'task_archived', 'Task was archived'
+  ), { taskId: String(taskId), event: 'archived' });
   emitTaskArchived(task.projectId, taskDto);
   return taskDto;
 }
@@ -557,9 +630,7 @@ async function restoreTask(taskId, accountId, req) {
   if (!task) {
     throw new AppError('Task not found', { status: 404, code: taskErrorCodes.TASK_NOT_FOUND });
   }
-  if (req) {
-    await assertCanArchiveTask(req, task);
-  }
+  await assertCanArchiveTask(req, task);
   if (task.status !== 'archived') {
     throw new AppError('Only archived tasks can be restored', {
       status: 409,
@@ -581,17 +652,24 @@ async function restoreTask(taskId, accountId, req) {
   });
 
   const taskDto = await enrichTask(updated);
+  await notifyBestEffort(() => taskNotificationPolicy.lifecycle(
+    updated, accountId, 'task_restored', 'Task was restored'
+  ), { taskId: String(taskId), event: 'restored' });
   emitTaskRestored(task.projectId, taskDto);
   return taskDto;
 }
 
-async function permanentDeleteTask(taskId, accountId) {
+async function permanentDeleteTask(taskId, accountId, req) {
   const task = await taskRepository.findById(taskId);
   if (!task) {
     throw new AppError('Task not found', { status: 404, code: taskErrorCodes.TASK_NOT_FOUND });
   }
 
+  await require('../helpers/taskMutationAccess.helper').assertTaskCapability(req, task, 'canDelete');
+
   assertPermanentDeleteAllowed(task.status);
+
+  const deleteRecipients = await taskNotificationPolicy.participantIds(task);
 
   const comments = await taskCommentRepository.listByTaskId(taskId);
   const fileUrls = collectTaskFileUrls(task, comments);
@@ -610,7 +688,6 @@ async function permanentDeleteTask(taskId, accountId) {
 
   await Promise.all([
     taskCommentRepository.deleteByTaskId(taskId),
-    taskNotificationRepository.deleteByTaskId(taskId),
     taskCollaboratorRepository.deleteByTaskId(taskId),
   ]);
 
@@ -618,6 +695,12 @@ async function permanentDeleteTask(taskId, accountId) {
   await deleteTaskFilesBestEffort(fileUrls);
 
   emitTaskDeleted(task.projectId, { taskId: String(taskId) });
+
+  await notifyBestEffort(() => taskNotificationPolicy.notifyRecipients(task, accountId, {
+    type: 'task_deleted', message: 'Task was permanently deleted',
+    recipientIds: deleteRecipients,
+    dedupeKey: `${task._id}:deleted:${new Date().toISOString()}`,
+  }), { taskId: String(taskId), event: 'deleted' });
 
   return { deleted: true, taskId: String(taskId) };
 }

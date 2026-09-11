@@ -25,6 +25,9 @@ function toTaskDto(task, { taskKeyPrefix } = {}) {
       assignedAt: a.assignedAt,
       assignedBy: a.assignedBy ? String(a.assignedBy) : null,
     })),
+    primaryAssigneeId: doc.primaryAssigneeId
+      ? String(doc.primaryAssigneeId)
+      : (doc.assignees?.[0]?.userId ? String(doc.assignees[0].userId) : null),
     reviewerId: doc.reviewerId ? String(doc.reviewerId) : null,
     dueDate: doc.dueDate,
     startDate: doc.startDate,
@@ -180,7 +183,9 @@ function toNotificationDto(notification) {
     actorId: doc.actorId ? String(doc.actorId) : (metadata.triggeredBy ? String(metadata.triggeredBy) : null),
     actorName: doc.actorName || metadata.triggeredByName || '',
     module: doc.module || null,
+    eventKey: doc.eventKey || null,
     priority: doc.priority || 'normal',
+    category: doc.category || notificationCategory(doc.type),
     type: doc.type,
     title: doc.title || taskTitle,
     body: doc.body || message,
@@ -199,7 +204,21 @@ function toNotificationDto(notification) {
     } : null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
+    metadata,
   };
+}
+
+function notificationCategory(type = '') {
+  if (/assign|responsibility/.test(type)) return 'assignment';
+  if (/collaborator/.test(type)) return 'collaboration';
+  if (/mention/.test(type)) return 'mention';
+  if (/comment|reply/.test(type)) return 'comment';
+  if (/review|_qa|to_qa/.test(type)) return 'review';
+  if (/priority/.test(type)) return 'priority';
+  if (/due|overdue/.test(type)) return 'due_date';
+  if (/status|moved|blocked|unblocked/.test(type)) return 'status';
+  if (/completed/.test(type)) return 'completion';
+  return 'task_lifecycle';
 }
 
 function toMentionDto({ comment, task, project, author }) {

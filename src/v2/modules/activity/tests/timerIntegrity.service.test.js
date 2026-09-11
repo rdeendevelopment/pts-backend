@@ -9,6 +9,7 @@ const weeks = require('../services/timeWeek.service');
 const sockets = require('../helpers/activitySocketEvents.helper');
 const projects = require('../../projects');
 const database = require('../../../database/connection');
+const notifications = require('../../tasks/services/taskNotification.service');
 
 const TIMER_ID = '507f1f77bcf86cd799439010';
 const USER_ID = '507f1f77bcf86cd799439012';
@@ -34,6 +35,7 @@ for (const [name, target, key] of [
   ['started', sockets, 'emitActivityTimerStarted'],
   ['stopped', sockets, 'emitActivityTimerStopped'],
   ['connection', database, 'getV2Connection'],
+  ['notification', notifications, 'createAndEmitNotification'],
 ]) originals[name] = { target, key, value: target[key] };
 
 function req(userId = USER_ID, body = {}) {
@@ -68,6 +70,7 @@ beforeEach(() => {
   projects.getAssignmentForUser = async () => ({ _id: '507f1f77bcf86cd799439015' });
   sockets.emitActivityTimerStarted = () => {};
   sockets.emitActivityTimerStopped = () => {};
+  notifications.createAndEmitNotification = async () => null;
 });
 
 afterEach(() => Object.values(originals).forEach(({ target, key, value }) => { target[key] = value; }));
@@ -213,14 +216,41 @@ test('switch atomically stops the old timer and starts the new timer at one time
   assert.equal(new Date(result.stoppedTimer.stoppedAt).getTime(), new Date(result.timer.startedAt).getTime());
 });
 
-test('archived/over-limit timer still stops because finalization bypasses new-start validation', async () => {
+test('over-limit Stop becomes review-required and does not silently finalize', async () => {
   const timer = running({ maxAccumulatedSeconds: 60 });
   activeTimers.findById = async () => timer;
   activeTimers.updateTimer = async (_id, payload) => Object.assign(timer, payload);
   validation.validateTimeEntry = async () => assert.fail('Stop must not revalidate project or limits');
-  timeEntries.createFinalizedTimerEntry = async () => ({ id: 'entry-review', needsReview: true });
+  timeEntries.createFinalizedTimerEntry = async () => assert.fail('unreviewed entry must not be finalized');
   const result = await timerService.stopTimer(TIMER_ID, ACCOUNT_ID, req());
-  assert.equal(result.timer.status, 'stopped');
+  assert.equal(result.timer.status, 'needs_correction');
+  assert.equal(result.needsCorrection, true);
+});
+
+test('heartbeat after the continuous limit caps at the exact boundary and emits once', async () => {
+  const startedAt = new Date('2026-09-10T09:12:00.000Z');
+  const timer = running({ startedAt, sessionStartedAt: startedAt, maxAccumulatedSeconds: 8 * 60 * 60 });
+  let current = timer;
+  let stops = 0;
+  let notices = 0;
+  activeTimers.findById = async () => current;
+  activeTimers.updateTimer = async (_id, payload, _session, options) => {
+    if (current.status !== options.expectedStatus) return null;
+    current = { ...current, ...payload, revision: current.revision + 1 };
+    return current;
+  };
+  sockets.emitActivityTimerStopped = () => { stops += 1; };
+  notifications.createAndEmitNotification = async () => { notices += 1; return {}; };
+
+  const first = await timerService.autoStopExpiredTimer(timer, new Date('2026-09-10T21:45:00.000Z'), ACCOUNT_ID);
+  const second = await timerService.autoStopExpiredTimer(timer, new Date('2026-09-10T21:45:00.000Z'), ACCOUNT_ID);
+
+  assert.equal(first.timer.status, 'needs_correction');
+  assert.equal(first.timer.accumulatedSeconds, 8 * 60 * 60);
+  assert.equal(first.timer.autoStoppedAt.toISOString(), '2026-09-10T17:12:00.000Z');
+  assert.equal(second.transitioned, false);
+  assert.equal(stops, 1);
+  assert.equal(notices, 1);
 });
 
 test('unauthorized user cannot stop or heartbeat another user timer', async () => {

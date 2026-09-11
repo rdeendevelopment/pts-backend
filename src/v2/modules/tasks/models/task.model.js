@@ -72,6 +72,7 @@ const TaskSchema = new Schema(
       index: true,
     },
     assignees: { type: [AssigneeSchema], default: [] },
+    primaryAssigneeId: { type: Schema.Types.ObjectId, ref: 'PtsUser', default: null },
     reviewerId: { type: Schema.Types.ObjectId, ref: 'PtsUser', default: null },
     dueDate: { type: Date, default: null, index: true },
     startDate: { type: Date, default: null },
@@ -98,6 +99,13 @@ const TaskSchema = new Schema(
 TaskSchema.index({ projectId: 1, workflowStatusId: 1, status: 1 });
 TaskSchema.index({ workflowStatusId: 1, workflowOrder: 1 });
 TaskSchema.index({ 'assignees.userId': 1, status: 1 });
+TaskSchema.index({ primaryAssigneeId: 1, status: 1, dueDate: 1 });
+TaskSchema.index({ projectId: 1, status: 1, priority: 1 });
+TaskSchema.index({ projectId: 1, status: 1, dueDate: 1 });
+TaskSchema.index({ status: 1, dueDate: 1, _id: 1 });
+TaskSchema.index({ status: 1, updatedAt: 1, _id: 1 });
+TaskSchema.index({ status: 1, workflowStatusId: 1, _id: 1 });
+TaskSchema.index({ createdBy: 1, status: 1, updatedAt: -1 });
 
 async function ensureTaskIndexes() {
   const Task = getV2Model('PtsTask', TaskSchema);

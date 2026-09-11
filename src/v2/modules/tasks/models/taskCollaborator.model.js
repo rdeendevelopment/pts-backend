@@ -37,6 +37,8 @@ const TaskCollaboratorSchema = new Schema(
 );
 
 TaskCollaboratorSchema.index({ taskId: 1, userId: 1 }, { unique: true });
+TaskCollaboratorSchema.index({ userId: 1, isActive: 1, taskId: 1 });
+TaskCollaboratorSchema.index({ taskId: 1, isActive: 1 });
 
 async function ensureTaskCollaboratorIndexes() {
   const TaskCollaborator = getV2Model('PtsTaskCollaborator', TaskCollaboratorSchema);

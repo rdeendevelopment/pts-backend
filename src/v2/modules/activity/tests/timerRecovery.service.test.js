@@ -16,6 +16,7 @@ const saved = {
   findById: activeTimerRepository.findById,
   updateTimer: activeTimerRepository.updateTimer,
   createEntry: timeEntryService.createEntry,
+  createCorrectedTimerEntry: timeEntryService.createCorrectedTimerEntry,
   createFinalizedTimerEntry: timeEntryService.createFinalizedTimerEntry,
   emitStarted: activitySocketEvents.emitActivityTimerStarted,
   emitStopped: activitySocketEvents.emitActivityTimerStopped,
@@ -25,6 +26,7 @@ afterEach(() => {
   activeTimerRepository.findById = saved.findById;
   activeTimerRepository.updateTimer = saved.updateTimer;
   timeEntryService.createEntry = saved.createEntry;
+  timeEntryService.createCorrectedTimerEntry = saved.createCorrectedTimerEntry;
   timeEntryService.createFinalizedTimerEntry = saved.createFinalizedTimerEntry;
   activitySocketEvents.emitActivityTimerStarted = saved.emitStarted;
   activitySocketEvents.emitActivityTimerStopped = saved.emitStopped;
@@ -52,7 +54,7 @@ function runningTimer() {
   };
 }
 
-test('over-limit stop caps the entry at eight hours without requiring correction', async () => {
+test('over-limit stop caps at eight hours and requires correction before creating an entry', async () => {
   const timer = runningTimer();
   let entryPayload = null;
   activeTimerRepository.findById = async () => timer;
@@ -65,9 +67,10 @@ test('over-limit stop caps the entry at eight hours without requiring correction
 
   const result = await timerService.stopTimer(TIMER_ID, ACCOUNT_ID, req());
 
-  assert.equal(result.timer.status, 'stopped');
-  assert.equal(result.needsCorrection, undefined);
-  assert.equal(entryPayload.minutes, 8 * 60);
+  assert.equal(result.timer.status, 'needs_correction');
+  assert.equal(result.needsCorrection, true);
+  assert.equal(result.timer.accumulatedSeconds, 8 * 60 * 60);
+  assert.equal(entryPayload, null);
 });
 
 test('correction saves valid duration and completes frozen timer', async () => {
@@ -82,7 +85,8 @@ test('correction saves valid duration and completes frozen timer', async () => {
   let entryPayload = null;
   activeTimerRepository.findById = async () => timer;
   activeTimerRepository.updateTimer = async (_id, payload) => ({ ...timer, ...payload });
-  timeEntryService.createEntry = async (payload) => {
+  timeEntryService.createCorrectedTimerEntry = async (_timer, endTime) => {
+    const payload = { minutes: Math.ceil((endTime.getTime() - STARTED_AT.getTime()) / 60000), endTime };
     entryPayload = payload;
     return { id: 'entry-1', minutes: payload.minutes };
   };
@@ -108,7 +112,7 @@ test('invalid correction remains recoverable and does not create an entry', asyn
     frozenAt: FROZEN_AT,
   };
   activeTimerRepository.findById = async () => timer;
-  timeEntryService.createEntry = async () => {
+  timeEntryService.createCorrectedTimerEntry = async () => {
     assert.fail('entry must not be created');
   };
 

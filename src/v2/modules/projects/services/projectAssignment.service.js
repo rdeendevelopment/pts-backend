@@ -16,6 +16,7 @@ const projectAssignmentRepository = require('../repositories/projectAssignment.r
 const projectService = require('./project.service');
 const projectStatsService = require('./projectStats.service');
 const projectEventService = require('./projectEvent.service');
+const notificationService = require('../../tasks/services/taskNotification.service');
 const { toProjectAssignmentDto } = require('../dto/project.dto');
 const {
   ensureApprovedCapacityCoversAssignments,
@@ -210,6 +211,13 @@ async function createAssignment(projectId, payload, accountId, req = null) {
     },
     req,
   });
+  await notificationService.createAndEmitNotification({
+    userId: assignment.userId, type: 'project_user_assigned', module: 'projects', eventKey: 'user_assigned',
+    entityType: 'project', entityId: String(project._id), projectId: project._id, actorId: accountId,
+    title: project.name, message: `You were added to ${project.name}`, link: `/tasks/project/${project._id}`,
+    metadata: { projectName: project.name, role: assignment.role },
+    dedupeKey: `projects:user_assigned:${project._id}:${assignment.userId}:${assignment._id}`,
+  }).catch(() => null);
 
   return toProjectAssignmentDto(assignment);
 }
@@ -261,12 +269,21 @@ async function updateAssignment(projectId, assignmentId, payload, accountId, req
     metadata: { assignmentId: String(assignment._id) },
     req,
   });
+  if (updates.role && updates.role !== existing.role) {
+    await notificationService.createAndEmitNotification({
+      userId: assignment.userId, type: 'project_role_changed', module: 'projects', eventKey: 'role_changed',
+      entityType: 'project', entityId: String(project._id), projectId: project._id, actorId: accountId,
+      title: project.name, message: `Your role on ${project.name} changed to ${assignment.role}`,
+      link: `/tasks/project/${project._id}`, metadata: { projectName: project.name, oldRole: existing.role, newRole: assignment.role },
+      dedupeKey: `projects:role_changed:${project._id}:${assignment.userId}:${existing.role}:${assignment.role}:${assignment.updatedAt}`,
+    }).catch(() => null);
+  }
 
   return toProjectAssignmentDto(assignment);
 }
 
 async function removeAssignment(projectId, assignmentId, accountId, req = null) {
-  await projectService.getProjectOrThrow(projectId);
+  const project = await projectService.getProjectOrThrow(projectId);
   const existing = await getAssignmentOrThrow(projectId, assignmentId);
 
   await projectAssignmentRepository.softRemoveAssignment(assignmentId, projectId, {
@@ -284,6 +301,12 @@ async function removeAssignment(projectId, assignmentId, accountId, req = null) 
     metadata: { assignmentId: String(existing._id), userId: String(existing.userId) },
     req,
   });
+  await notificationService.createAndEmitNotification({
+    userId: existing.userId, type: 'project_user_removed', module: 'projects', eventKey: 'user_removed',
+    entityType: 'project', entityId: String(project._id), projectId: project._id, actorId: accountId,
+    title: project.name, message: `You were removed from ${project.name}`, metadata: { projectName: project.name },
+    dedupeKey: `projects:user_removed:${project._id}:${existing.userId}:${existing.updatedAt}`,
+  }).catch(() => null);
 
   return { deleted: true, id: String(assignmentId) };
 }

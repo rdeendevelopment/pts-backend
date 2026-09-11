@@ -3,6 +3,7 @@ const taskAccessService = require('../services/taskAccess.service');
 const taskRepository = require('../repositories/task.repository');
 const { AppError } = require('../../../kernel/errors');
 const taskErrorCodes = require('../errors/taskErrorCodes');
+const { assertTaskCapability } = require('../helpers/taskMutationAccess.helper');
 const {
   BOARD_SHARE_ACTIONS,
   assertClientBoardShare,
@@ -42,7 +43,14 @@ function assertTaskAccess(action = BOARD_SHARE_ACTIONS.VIEW_TASK) {
       await assertClientBoardShare(req, task.projectId, action);
       return next();
     }
-    await taskAccessService.assertCanAccessProjectForTasks(req, task.projectId);
+    const capabilityByAction = {
+      [BOARD_SHARE_ACTIONS.VIEW_TASK]: 'canView',
+      [BOARD_SHARE_ACTIONS.EDIT_TASK]: 'canEdit',
+      [BOARD_SHARE_ACTIONS.MOVE_TASK]: 'canMove',
+      [BOARD_SHARE_ACTIONS.COMMENT]: 'canComment',
+      [BOARD_SHARE_ACTIONS.UPLOAD_ATTACHMENT]: 'canUploadAttachment',
+    };
+    await assertTaskCapability(req, task, capabilityByAction[action] || 'canView');
     return next();
   });
 }

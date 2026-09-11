@@ -15,6 +15,7 @@ const createTaskRules = [
   body('title').trim().notEmpty().withMessage('title is required'),
   body('priority').optional().isIn(TASK_PRIORITIES),
   body('assigneeIds').optional().isArray(),
+  body('primaryAssigneeId').optional({ nullable: true }).isString(),
   body('workflowStatusId').optional().isString(),
   body('statusId').optional().isString(),
 ];
@@ -24,6 +25,7 @@ const updateTaskRules = [
   body('title').optional().trim().notEmpty(),
   body('priority').optional().isIn(TASK_PRIORITIES),
   body('assigneeIds').optional().isArray(),
+  body('primaryAssigneeId').optional({ nullable: true }).isString(),
   body('attachments').optional().isArray(),
   body('checklist').optional().isArray(),
 ];
@@ -40,18 +42,30 @@ const createCommentRules = [
   body('text').optional().isString(),
   body('mentions').optional().isArray(),
   body('attachments').optional().isArray(),
-  body('parentCommentId').optional().isString(),
+  body('parentCommentId').optional({ nullable: true }).isMongoId(),
 ];
 
 const aggregateQueryRules = [
   query('projectId').optional().isString().notEmpty(),
   query('status').optional().isIn(TASK_STATUSES),
+  query('lifecycleState').optional().isIn(['active', 'completed']),
+  query('workflowStatusId').optional().isString().notEmpty(),
+  query('workflowStatusIds').optional().isString().isLength({ max: 4000 }),
+  query('workflowCategory').optional().isIn(WORKFLOW_STATUS_CATEGORIES),
+  query('due').optional().isIn(['today', 'overdue']),
+  query('dueGroup').optional().isIn(['none', 'upcoming']),
+  query('dueToday').optional().isIn(['true', 'false']),
+  query('overdue').optional().isIn(['true', 'false']),
   query('priority').optional().isIn(TASK_PRIORITIES),
   query('dueDateFrom').optional().isISO8601().toDate(),
   query('dueDateTo').optional().isISO8601().toDate(),
   query('dueDateStart').optional().isISO8601().toDate(),
   query('dueDateEnd').optional().isISO8601().toDate(),
   query('search').optional().isString(),
+  query('preset').optional().isIn(['all', 'attention', 'review', 'in_progress']),
+  query('assigneeUserId').optional().isString().notEmpty(),
+  query('sort').optional().isIn(['updatedAt', 'dueDate', 'priority', 'createdAt', 'project', 'assignee']),
+  query('dir').optional().isIn(['asc', 'desc']),
   query('page').optional().isInt({ min: 1 }).toInt(),
   query('limit').optional().isInt({ min: 1, max: MAX_AGGREGATE_LIMIT }).toInt(),
 ];
@@ -74,6 +88,21 @@ const notificationQueryRules = [
   query('isRead').optional().isIn(['true', 'false']),
   query('page').optional().isInt({ min: 1 }).toInt(),
   query('limit').optional().isInt({ min: 1, max: MAX_AGGREGATE_LIMIT }).toInt(),
+  query('offset').optional().isInt({ min: 0 }).toInt(),
+];
+
+const activityQueryRules = [
+  query('projectId').optional().isMongoId(),
+  query('eventType').optional().isIn([
+    'TASK_CREATED', 'TASK_UPDATED', 'TASK_MOVED', 'TASK_COMPLETED',
+    'TASK_ARCHIVED', 'TASK_RESTORED', 'TASK_COMMENT_ADDED',
+    'COLLABORATOR_ADDED', 'COLLABORATOR_UPDATED', 'COLLABORATOR_REMOVED',
+  ]),
+  query('search').optional().trim().isLength({ max: 120 }),
+  query('dateFrom').optional().isISO8601(),
+  query('dateTo').optional().isISO8601(),
+  query('page').optional().isInt({ min: 1 }).toInt(),
+  query('limit').optional().isInt({ min: 1, max: 50 }).toInt(),
 ];
 
 const reportsQueryRules = [
@@ -103,10 +132,23 @@ const teamDashboardQueryRules = [
 
 const teamTasksQueryRules = [
   ...teamDashboardQueryRules,
+  query('lifecycleState').optional().isIn(['active', 'completed']),
+  query('workflowStatusId').optional().isString().notEmpty(),
+  query('workflowStatusIds').optional().isString().isLength({ max: 4000 }),
+  query('workflowCategory').optional().isIn(WORKFLOW_STATUS_CATEGORIES),
+  query('due').optional().isIn(['today', 'overdue']),
+  query('dueGroup').optional().isIn(['none', 'upcoming']),
+  query('dueToday').optional().isIn(['true', 'false']),
+  query('overdue').optional().isIn(['true', 'false']),
   query('page').optional().isInt({ min: 1 }).toInt(),
   query('limit').optional().isInt({ min: 1, max: MAX_AGGREGATE_LIMIT }).toInt(),
-  query('sort').optional().isIn(['updatedAt', 'dueDate', 'priority']),
+  query('sort').optional().isIn(['updatedAt', 'dueDate', 'priority', 'createdAt', 'project', 'assignee']),
   query('dir').optional().isIn(['asc', 'desc']),
+  query('preset').optional().isIn(['all', 'attention', 'overdue', 'today', 'tomorrow', 'week', 'next7', 'month', 'unassigned', 'critical', 'blocked', 'review', 'stale', 'incomplete']),
+  query('accountabilityMode').optional().isIn(['primary', 'collaborator', 'involved']),
+  query('unassigned').optional().isIn(['true', 'false']),
+  query('staleDays').optional().isInt({ min: 3, max: 365 }).toInt(),
+  query('createdBy').optional().isString().notEmpty(),
 ];
 
 const notificationIdRules = [
@@ -209,6 +251,7 @@ module.exports = {
   aggregateQueryRules,
   projectBoardQueryRules,
   notificationQueryRules,
+  activityQueryRules,
   reportsQueryRules,
   teamDashboardQueryRules,
   teamTasksQueryRules,

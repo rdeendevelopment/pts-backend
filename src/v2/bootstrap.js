@@ -75,6 +75,10 @@ async function runBootstrapMaintenance() {
   await ensureTaskModuleIndexes();
   info('PTS v2 task indexes ensured');
 
+  const { ensureNotificationSettingsIndexes } = require('./modules/notifications');
+  await ensureNotificationSettingsIndexes();
+  info('PTS v2 notification settings indexes ensured');
+
   const { bootstrapReportsModule } = require('./modules/reports');
   await bootstrapReportsModule();
   info('PTS v2 report indexes ensured');

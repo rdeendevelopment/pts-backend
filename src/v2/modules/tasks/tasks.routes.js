@@ -14,6 +14,7 @@ const {
   aggregateQueryRules,
   projectBoardQueryRules,
   notificationQueryRules,
+  activityQueryRules,
   reportsQueryRules,
   teamDashboardQueryRules,
   teamTasksQueryRules,
@@ -100,8 +101,11 @@ router.get('/projects/:projectId/tasks/archived', canViewTasks, rejectClientPort
 router.post('/projects/:projectId/tasks', canWorkOnTasks, createTaskRules, validateRequest, assertProjectId, createOnProject, controller.createTask);
 
 router.get('/inbox', canViewTasks, rejectClientPortalUser, aggregateQueryRules, validateRequest, controller.getInbox);
+router.get('/inbox-overview', canViewTasks, rejectClientPortalUser, notificationQueryRules, validateRequest, controller.getInboxOverview);
 router.get('/my-tasks/summary', canViewTasks, rejectClientPortalUser, aggregateQueryRules, validateRequest, controller.getMyTasksSummary);
 router.get('/my-tasks', canViewTasks, rejectClientPortalUser, aggregateQueryRules, validateRequest, controller.getMyTasks);
+router.get('/my-work', canViewTasks, rejectClientPortalUser, aggregateQueryRules, validateRequest, controller.getMyWork);
+router.get('/dashboard', canViewTasks, rejectClientPortalUser, controller.getPersonalDashboard);
 
 router.get('/notifications/unread-count', canViewTasks, rejectClientPortalUser, notificationQueryRules, validateRequest, controller.getNotificationUnreadCount);
 router.post('/notifications/read-all', canViewTasks, rejectClientPortalUser, controller.markAllNotificationsRead);
@@ -109,7 +113,7 @@ router.get('/notifications', canViewTasks, rejectClientPortalUser, notificationQ
 router.patch('/notifications/:id/read', canViewTasks, rejectClientPortalUser, notificationIdRules, validateRequest, controller.markNotificationRead);
 router.get('/mentions', canViewTasks, rejectClientPortalUser, notificationQueryRules, validateRequest, controller.getMentions);
 
-router.get('/activity', canViewTasks, controller.getActivity);
+router.get('/activity', canViewTasks, rejectClientPortalUser, activityQueryRules, validateRequest, controller.getActivity);
 router.get('/activity/summary', canManageTasks, rejectClientPortalUser, controller.getActivitySummary);
 router.get('/calendar', canViewTasks, rejectClientPortalUser, controller.getCalendar);
 router.get('/reports/workload', canManageTasks, rejectClientPortalUser, controller.getWorkload);
@@ -118,6 +122,7 @@ router.get('/reports', canViewTasks, rejectClientPortalUser, reportsQueryRules, 
 
 router.get('/team/dashboard', canViewTasks, rejectClientPortalUser, teamDashboardQueryRules, validateRequest, controller.getTeamDashboard);
 router.get('/team/tasks', canViewTasks, rejectClientPortalUser, teamTasksQueryRules, validateRequest, controller.listTeamTasks);
+router.get('/team/work', canViewTasks, rejectClientPortalUser, teamTasksQueryRules, validateRequest, controller.getTeamWork);
 router.get('/team/users/:userId', canViewTasks, rejectClientPortalUser, teamDashboardQueryRules, validateRequest, controller.getTeamUserDashboard);
 
 router.get('/tasks/:taskId', canViewTasks, taskIdRules, validateRequest, assertTaskId, viewTask, controller.getTask);
@@ -125,6 +130,7 @@ router.get('/tasks/:taskId/activity', canViewTasks, taskIdRules, validateRequest
 router.patch('/tasks/:taskId', canWorkOnTasks, updateTaskRules, validateRequest, assertTaskId, editTask, controller.updateTask);
 router.patch('/tasks/:taskId/move', canViewTasks, moveTaskRules, validateRequest, assertTaskId, moveTaskAccess, controller.moveTask);
 router.post('/tasks/:taskId/complete', canWorkOnTasks, taskIdRules, validateRequest, assertTaskId, editTask, controller.completeTask);
+router.post('/tasks/:taskId/reopen', canWorkOnTasks, taskIdRules, validateRequest, assertTaskId, editTask, controller.reopenTask);
 router.post('/tasks/:taskId/archive', canWorkOnTasks, rejectClientPortalUser, taskIdRules, validateRequest, assertTaskId, editTask, controller.archiveTask);
 router.post('/tasks/:taskId/restore', canWorkOnTasks, rejectClientPortalUser, taskIdRules, validateRequest, assertTaskId, editTask, controller.restoreTask);
 router.delete('/tasks/:taskId/permanent', canManageTasks, rejectClientPortalUser, taskIdRules, validateRequest, assertTaskId, editTask, controller.permanentDeleteTask);

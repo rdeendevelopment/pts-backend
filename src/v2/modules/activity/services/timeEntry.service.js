@@ -9,6 +9,7 @@ const {
   buildActivityUserScope,
 } = require('../helpers/access.helper');
 const { toTimeEntryDto } = require('../dto/activity.dto');
+const TIMER_CORRECTION_ENTRY = Symbol('timerCorrectionEntry');
 
 async function getEntryOrThrow(entryId) {
   const entry = await timeEntryRepository.findById(entryId);
@@ -108,6 +109,7 @@ async function createEntry(payload, accountId, req) {
 
   const entry = await timeEntryRepository.createEntry({
     timeWeekId: week._id,
+    timerId: payload[TIMER_CORRECTION_ENTRY] ? payload.timerId : null,
     projectId: payload.projectId,
     assignmentId: assignment._id,
     userId,
@@ -254,6 +256,32 @@ async function createFinalizedTimerEntry(timer, accountId) {
   }
 }
 
+async function createCorrectedTimerEntry(timer, correctedEnd, description, accountId, req) {
+  try {
+    return await createEntry({
+      [TIMER_CORRECTION_ENTRY]: true,
+      timerId: timer._id,
+      projectId: timer.projectId,
+      assignmentId: timer.assignmentId,
+      budgetId: timer.budgetId,
+      taskId: timer.taskId,
+      workCategoryId: timer.workCategoryId,
+      entryDate: correctedEnd,
+      startTime: timer.sessionStartedAt || timer.startedAt,
+      endTime: correctedEnd,
+      minutes: Math.ceil((correctedEnd.getTime() - new Date(timer.sessionStartedAt || timer.startedAt).getTime()) / 60000),
+      description,
+      source: 'timer',
+    }, accountId, req);
+  } catch (err) {
+    if (err?.code === 11000 || err?.code === 11001) {
+      const existing = await timeEntryRepository.findByTimerId(timer._id);
+      if (existing) return toTimeEntryDto(existing);
+    }
+    throw err;
+  }
+}
+
 module.exports = {
   listEntries,
   getEntryById,
@@ -262,4 +290,5 @@ module.exports = {
   deleteEntry,
   previewValidation,
   createFinalizedTimerEntry,
+  createCorrectedTimerEntry,
 };

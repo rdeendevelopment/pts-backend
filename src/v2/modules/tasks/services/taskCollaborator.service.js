@@ -6,6 +6,8 @@ const taskErrorCodes = require('../errors/taskErrorCodes');
 const taskRepository = require('../repositories/task.repository');
 const taskCollaboratorRepository = require('../repositories/taskCollaborator.repository');
 const taskActivityService = require('./taskActivity.service');
+const taskNotificationPolicy = require('./taskNotificationPolicy.service');
+const { warn } = require('../../../kernel/logger');
 const { displayName, resolveUsersByIds } = require('../helpers/taskUser.helper');
 const { toCollaboratorDto } = require('../dto/task.dto');
 const { normalizeAccessType } = require('../helpers/taskCollaborator.helper');
@@ -105,6 +107,9 @@ async function addCollaborator(taskId, payload, accountId, req) {
       accessType,
     },
   });
+  const change = wasActive ? 'access_changed' : 'added';
+  await taskNotificationPolicy.collaboratorChanged(task, accountId, user._id, change, existing?.accessType || null, accessType)
+    .catch((err) => warn('Collaborator notification skipped', { taskId: String(task._id), message: err.message }));
 
   return toCollaboratorDto(collaborator, user);
 }
@@ -129,6 +134,8 @@ async function removeCollaborator(taskId, userId, accountId, req) {
     performedBy: accountId,
     metadata: { userId: String(targetUserId) },
   });
+  await taskNotificationPolicy.collaboratorChanged(task, accountId, targetUserId, 'removed', collaborator.accessType, null)
+    .catch((err) => warn('Collaborator notification skipped', { taskId: String(task._id), message: err.message }));
 
   return { success: true, userId: String(targetUserId) };
 }

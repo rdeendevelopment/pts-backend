@@ -5,6 +5,7 @@ const taskRepository = require('../repositories/task.repository');
 const taskCommentRepository = require('../repositories/taskComment.repository');
 const taskActivityService = require('./taskActivity.service');
 const taskNotificationService = require('./taskNotification.service');
+const taskNotificationPolicy = require('./taskNotificationPolicy.service');
 const { emitTaskCommentCreated } = require('../helpers/taskSocketEvents.helper');
 const { assertTaskReadable, assertCanCommentOnTask } = require('../helpers/taskCollaboratorAccess.helper');
 const { toCommentDto } = require('../dto/task.dto');
@@ -48,6 +49,17 @@ async function createComment(taskId, payload, accountId, req) {
     });
   }
 
+  let parentComment = null;
+  if (payload.parentCommentId) {
+    parentComment = await taskCommentRepository.findById(payload.parentCommentId, taskId);
+    if (!parentComment) {
+      throw new AppError('Reply target must be an existing comment on this task', {
+        status: 400,
+        code: taskErrorCodes.TASK_COMMENT_NOT_FOUND,
+      });
+    }
+  }
+
   const comment = await taskCommentRepository.createComment({
     taskId,
     projectId: task.projectId,
@@ -57,6 +69,22 @@ async function createComment(taskId, payload, accountId, req) {
     attachments,
     parentCommentId: payload.parentCommentId || null,
   });
+
+  const actorName = displayName(await userRepository.findByAccountId(accountId));
+  let mentionNotifications = [];
+  try {
+    mentionNotifications = await taskNotificationService.notifyMentionsOnComment({
+      task, comment, actorAccountId: accountId, actorName,
+    });
+  } catch (_) {
+    // Mention delivery must not fail an otherwise valid comment.
+  }
+
+  if (parentComment) {
+    await taskNotificationPolicy.commentReply(
+      task, accountId, parentComment, comment, mentionNotifications.map((row) => row.receiverId)
+    ).catch(() => {});
+  }
 
   await taskRepository.incrementCommentCount(taskId, 1);
 
@@ -76,18 +104,6 @@ async function createComment(taskId, payload, accountId, req) {
     ),
   };
   emitTaskCommentCreated(task.projectId, taskId, commentDto);
-
-  const actorName = displayName(await userRepository.findByAccountId(accountId));
-  try {
-    await taskNotificationService.notifyMentionsOnComment({
-      task,
-      comment,
-      actorAccountId: accountId,
-      actorName,
-    });
-  } catch (_) {
-    // Mention delivery must not fail an otherwise valid comment.
-  }
 
   return commentDto;
 }

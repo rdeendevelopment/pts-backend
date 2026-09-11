@@ -10,6 +10,7 @@ const timeEntryRepository = require('../repositories/timeEntry.repository');
 const timeWeekRepository = require('../repositories/timeWeek.repository');
 const userRepository = require('../../users/repositories/user.repository');
 const taskRepository = require('../../tasks/repositories/task.repository');
+const taskNotificationService = require('../../tasks/services/taskNotification.service');
 const userSummaryHelper = require('../helpers/userSummary.helper');
 
 const saved = {
@@ -24,6 +25,8 @@ const saved = {
   findWeeksByIds: timeWeekRepository.findByIds,
   findByUserAndWeekStart: timeWeekRepository.findByUserAndWeekStart,
   findUserById: userRepository.findById,
+  findUserByAccountId: userRepository.findByAccountId,
+  createNotification: taskNotificationService.createAndEmitNotification,
   findTitlesByIds: taskRepository.findTitlesByIds,
   emitActivityWeekReminder: activitySocketEvents.emitActivityWeekReminder,
   resolveUsersByIds: userSummaryHelper.resolveUsersByIds,
@@ -41,6 +44,8 @@ test.afterEach(() => {
   timeWeekRepository.findByIds = saved.findWeeksByIds;
   timeWeekRepository.findByUserAndWeekStart = saved.findByUserAndWeekStart;
   userRepository.findById = saved.findUserById;
+  userRepository.findByAccountId = saved.findUserByAccountId;
+  taskNotificationService.createAndEmitNotification = saved.createNotification;
   taskRepository.findTitlesByIds = saved.findTitlesByIds;
   activitySocketEvents.emitActivityWeekReminder = saved.emitActivityWeekReminder;
   userSummaryHelper.resolveUsersByIds = saved.resolveUsersByIds;
@@ -293,11 +298,17 @@ test('view-all project report keeps explicit user filter', async () => {
 test('notifyMissingWeek rejects submitted weeks and emits reminder for missing weeks', async () => {
   const userId = '507f1f77bcf86cd799439012';
   let emitted = null;
+  let notification = null;
 
   userRepository.findById = async () => ({ _id: userId, email: 'pat@example.com' });
+  userRepository.findByAccountId = async () => ({ displayName: 'Admin' });
   timeWeekRepository.findByUserAndWeekStart = async () => null;
   activitySocketEvents.emitActivityWeekReminder = (targetUserId, payload) => {
     emitted = { targetUserId, payload };
+  };
+  taskNotificationService.createAndEmitNotification = async (payload) => {
+    notification = payload;
+    return { id: 'notification-id' };
   };
 
   const result = await activityAdminService.notifyMissingWeek({
@@ -308,6 +319,10 @@ test('notifyMissingWeek rejects submitted weeks and emits reminder for missing w
   assert.equal(result.success, true);
   assert.equal(emitted.targetUserId, userId);
   assert.match(emitted.payload.message, /Reminder/);
+  assert.equal(notification.userId, userId);
+  assert.equal(notification.type, 'activity_week_submission_reminder');
+  assert.equal(notification.eventKey, 'submission_reminder');
+  assert.equal(notification.link, '/user/activity/my-activity');
 });
 
 test('notifyMissingWeek blocks already submitted weeks', async () => {

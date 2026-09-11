@@ -15,6 +15,11 @@ const taskActivityFeedService = require('../services/taskActivityFeed.service');
 const taskCalendarService = require('../services/taskCalendar.service');
 const taskReportsService = require('../services/taskReports.service');
 const taskTeamDashboardService = require('../services/taskTeamDashboard.service');
+const taskWorkService = require('../services/taskWork.service');
+const taskInboxOverviewService = require('../services/taskInboxOverview.service');
+const taskPersonalDashboardService = require('../services/taskPersonalDashboard.service');
+const env = require('../../../config/env');
+const { AppError } = require('../../../kernel/errors');
 
 async function getBoard(req, res) {
   const projectId = assertObjectId(req.params.projectId, 'projectId');
@@ -107,7 +112,7 @@ async function removeCollaborator(req, res) {
 
 async function permanentDeleteTask(req, res) {
   const taskId = assertObjectId(req.params.taskId, 'taskId');
-  const data = await taskBoardService.permanentDeleteTask(taskId, req.v2Auth.accountId);
+  const data = await taskBoardService.permanentDeleteTask(taskId, req.v2Auth.accountId, req);
   return sendSuccess(res, data);
 }
 
@@ -146,7 +151,13 @@ async function moveTask(req, res) {
 
 async function completeTask(req, res) {
   const taskId = assertObjectId(req.params.taskId, 'taskId');
-  const data = await taskBoardService.completeTask(taskId, req.v2Auth.accountId);
+  const data = await taskBoardService.completeTask(taskId, req.v2Auth.accountId, req);
+  return sendSuccess(res, data);
+}
+
+async function reopenTask(req, res) {
+  const taskId = assertObjectId(req.params.taskId, 'taskId');
+  const data = await taskBoardService.reopenTask(taskId, req.v2Auth.accountId, req);
   return sendSuccess(res, data);
 }
 
@@ -179,6 +190,10 @@ async function getInbox(req, res) {
   return sendSuccess(res, data);
 }
 
+async function getInboxOverview(req, res) {
+  return sendSuccess(res, await taskInboxOverviewService.getTaskInboxOverview(req, req.query));
+}
+
 async function getMyTasks(req, res) {
   const data = await taskAggregateService.getMyTasks(req, req.query);
   return sendSuccess(res, data);
@@ -187,6 +202,20 @@ async function getMyTasks(req, res) {
 async function getMyTasksSummary(req, res) {
   const data = await taskAggregateService.getMyTasksSummary(req, req.query);
   return sendSuccess(res, data);
+}
+
+async function getMyWork(req, res) {
+  if (!env.v2.taskFeatures.myWork) throw new AppError('My Work is disabled', { status: 404 });
+  return sendSuccess(res, await taskWorkService.listMyWork(req, req.query));
+}
+
+async function getPersonalDashboard(req, res) {
+  return sendSuccess(res, await taskPersonalDashboardService.getPersonalDashboard(req));
+}
+
+async function getTeamWork(req, res) {
+  if (!env.v2.taskFeatures.teamWork) throw new AppError('Team Work is disabled', { status: 404 });
+  return sendSuccess(res, await taskWorkService.listTeamWork(req, req.query));
 }
 
 async function listNotifications(req, res) {
@@ -237,8 +266,7 @@ async function uploadCommentAttachment(req, res) {
 }
 
 async function getActivity(req, res) {
-  const items = await taskActivityFeedService.getActivityFeed(req);
-  return sendSuccess(res, items);
+  return sendSuccess(res, await taskActivityFeedService.getActivityFeed(req));
 }
 
 async function getTaskActivity(req, res) {
@@ -352,8 +380,12 @@ module.exports = {
   permanentDeleteTask: asyncHandler(permanentDeleteTask),
   createTask: asyncHandler(createTask),
   getInbox: asyncHandler(getInbox),
+  getInboxOverview: asyncHandler(getInboxOverview),
   getMyTasks: asyncHandler(getMyTasks),
   getMyTasksSummary: asyncHandler(getMyTasksSummary),
+  getMyWork: asyncHandler(getMyWork),
+  getPersonalDashboard: asyncHandler(getPersonalDashboard),
+  getTeamWork: asyncHandler(getTeamWork),
   listNotifications: asyncHandler(listNotifications),
   getNotificationUnreadCount: asyncHandler(getNotificationUnreadCount),
   markNotificationRead: asyncHandler(markNotificationRead),
@@ -382,6 +414,7 @@ module.exports = {
   updateTask: asyncHandler(updateTask),
   moveTask: asyncHandler(moveTask),
   completeTask: asyncHandler(completeTask),
+  reopenTask: asyncHandler(reopenTask),
   archiveTask: asyncHandler(archiveTask),
   restoreTask: asyncHandler(restoreTask),
   listComments: asyncHandler(listComments),

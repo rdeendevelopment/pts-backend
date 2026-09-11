@@ -5,6 +5,13 @@ async function listByTaskId(taskId) {
   return TaskComment.find({ taskId, isDeleted: false }).sort({ createdAt: 1 }).exec();
 }
 
+async function findById(commentId, taskId = null) {
+  const TaskComment = getTaskCommentModel();
+  const query = { _id: commentId, isDeleted: false };
+  if (taskId) query.taskId = taskId;
+  return TaskComment.findOne(query).exec();
+}
+
 async function deleteByTaskId(taskId) {
   const TaskComment = getTaskCommentModel();
   return TaskComment.deleteMany({ taskId }).exec();
@@ -46,6 +53,7 @@ async function listMentionsByUserId(userId, { skip = 0, limit = 50 } = {}) {
 }
 
 module.exports = {
+  findById,
   listByTaskId,
   createComment,
   findMentionedTaskIds,

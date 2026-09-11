@@ -22,7 +22,7 @@ async function resolveProjectEditorRole(projectId, userId) {
   if (taskMember?.role) return taskMember.role;
 
   const assignment = await projectAssignmentRepository.findByProjectAndUser(projectId, userId);
-  if (!assignment) return null;
+  if (!assignment || assignment.status !== 'active') return null;
   return mapAssignmentRoleToEditorRole(assignment.role);
 }
 

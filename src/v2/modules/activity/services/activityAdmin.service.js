@@ -2,6 +2,7 @@ const { AppError } = require('../../../kernel/errors');
 const { info } = require('../../../kernel/logger');
 const { getUserModel } = require('../../users/models/user.model');
 const userRepository = require('../../users/repositories/user.repository');
+const taskNotificationService = require('../../tasks/services/taskNotification.service');
 const timeWeekRepository = require('../repositories/timeWeek.repository');
 const activityErrorCodes = require('../errors/activityErrorCodes');
 const activitySocketEvents = require('../helpers/activitySocketEvents.helper');
@@ -181,13 +182,37 @@ async function notifyMissingWeek(payload, accountId) {
     sentBy: String(accountId),
   });
 
+  const actor = await userRepository.findByAccountId(accountId).catch(() => null);
+  const actorName = actor?.displayName
+    || [actor?.firstName, actor?.lastName].filter(Boolean).join(' ')
+    || actor?.email
+    || 'An administrator';
+  const periodKey = String(weekStartDate).slice(0, 10);
+  const reminderWindow = new Date().toISOString().slice(0, 13);
+  const notification = await taskNotificationService.createAndEmitNotification({
+    userId: user._id,
+    type: 'activity_week_submission_reminder',
+    module: 'timesheets',
+    eventKey: 'submission_reminder',
+    entityType: 'activity_week',
+    entityId: week?._id ? String(week._id) : `${user._id}:${periodKey}`,
+    activityId: week?._id || null,
+    actorId: accountId,
+    actorName,
+    title: 'Timesheet submission reminder',
+    message: `${actorName} reminded you to submit your timesheet for the week starting ${periodKey}.`,
+    link: '/user/activity/my-activity',
+    metadata: { periodLabel: periodKey, userName: user.displayName || user.email || '' },
+    dedupeKey: `timesheets:submission_reminder:${user._id}:${periodKey}:${accountId}:${reminderWindow}`,
+  }).catch(() => null);
+
   return {
     success: true,
     userId: String(user._id),
     weekStartDate: String(weekStartDate).slice(0, 10),
     message,
-    delivered: true,
-    channel: 'activity.socket',
+    delivered: Boolean(notification),
+    channel: notification ? 'notification' : null,
   };
 }
 

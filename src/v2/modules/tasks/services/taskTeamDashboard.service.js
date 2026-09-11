@@ -595,6 +595,7 @@ async function getUserDashboard(req, userId, query = {}) {
 }
 
 module.exports = {
+  resolveTeamScope,
   getDashboard,
   listTeamTasks,
   getUserDashboard,
