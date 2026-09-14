@@ -63,10 +63,10 @@ test('Team Work summaries preserve every assignee and resolved profile data', ()
 });
 
 test('whole-project My Tasks access recognizes only super admins', () => {
-  assert.equal(isSuperAdminRequest({ v2Auth: { accountType: 'super_admin' } }), true);
-  assert.equal(isSuperAdminRequest({ v2Auth: { accountType: 'employee', roles: [{ key: 'super_admin' }] } }), true);
-  assert.equal(isSuperAdminRequest({ v2Auth: { accountType: 'admin', roles: ['admin'] } }), false);
-  assert.equal(isSuperAdminRequest({ v2Auth: { accountType: 'employee' } }), false);
+  assert.equal(isSuperAdminRequest({ v2Auth: { account: { accountType: 'super_admin' } } }), true);
+  assert.equal(isSuperAdminRequest({ v2Auth: { account: { accountType: 'employee' }, roles: [{ key: 'super_admin' }] } }), false);
+  assert.equal(isSuperAdminRequest({ v2Auth: { account: { accountType: 'admin' }, roles: ['admin'] } }), false);
+  assert.equal(isSuperAdminRequest({ v2Auth: { account: { accountType: 'employee' } } }), false);
 });
 
 test('regular project scope is limited to creator or assignee', () => {

@@ -7,6 +7,10 @@ function canManageTasks(req) {
   return permissions.includes('tasks.manage');
 }
 
+function canViewAllTaskProjects(req) {
+  return req?.v2Auth?.account?.accountType === 'super_admin';
+}
+
 async function findUserIdFromAuth(accountId) {
   const user = await userRepository.findByAccountId(accountId);
   return user?._id || null;
@@ -25,6 +29,7 @@ async function resolveUserIdFromAuth(accountId) {
 
 module.exports = {
   canManageTasks,
+  canViewAllTaskProjects,
   findUserIdFromAuth,
   resolveUserIdFromAuth,
 };

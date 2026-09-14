@@ -13,13 +13,13 @@ const collabTaskId = '507f1f77bcf86cd799439014';
 test('buildSelfScopeConditions includes collaborator task ids', () => {
   const conditions = buildSelfScopeConditions(userId, [projectId], [taskId], [collabTaskId]);
   assert.equal(conditions.length, 4);
-  assert.deepEqual(conditions[3], { _id: { $in: [collabTaskId] } });
+  assert.deepEqual(conditions[3], { _id: { $in: [collabTaskId] }, projectId: { $in: [projectId] } });
 });
 
 test('buildMyTasksScopeConditions includes collaborator task ids', () => {
   const conditions = buildMyTasksScopeConditions(userId, [projectId], [], [collabTaskId]);
   assert.equal(conditions.length, 2);
-  assert.deepEqual(conditions[1], { _id: { $in: [collabTaskId] } });
+  assert.deepEqual(conditions[1], { _id: { $in: [collabTaskId] }, projectId: { $in: [projectId] } });
 });
 
 test('buildMyTasksScopeConditions returns empty without assignments or collaborators', () => {

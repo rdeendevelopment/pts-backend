@@ -5,6 +5,7 @@ const taskMemberRepository = require('../repositories/taskMember.repository');
 const taskCollaboratorRepository = require('../repositories/taskCollaborator.repository');
 const {
   canManageTasks,
+  canViewAllTaskProjects,
   resolveUserIdFromAuth,
 } = require('./taskAccessScope.helper');
 const {
@@ -58,7 +59,7 @@ async function resolveTaskCapabilities(req, task) {
     };
   }
 
-  if (canManageTasks(req)) {
+  if (canViewAllTaskProjects(req)) {
     return {
       ...none, canView: true, canRead: true,
       canComment: true,
@@ -72,6 +73,19 @@ async function resolveTaskCapabilities(req, task) {
   }
 
   const userId = await resolveUserIdFromAuth(req.v2Auth.accountId);
+  if (canManageTasks(req)) {
+    const assignment = await projectAssignmentRepository.findByProjectAndUser(task.projectId, userId);
+    if (!assignment || assignment.isDeleted || assignment.status !== 'active') return none;
+    return {
+      ...none, canView: true, canRead: true,
+      canComment: true,
+      canUploadAttachment: true, canDeleteOwnAttachment: true,
+      canEdit: true, canMove: true, canComplete: true, canReopen: true,
+      canArchive: true, canRestore: true, canDelete: true,
+      canManageCollaborators: true,
+      collaboratorOnly: false,
+    };
+  }
   const role = await resolveProjectEditorRole(task.projectId, userId);
 
   if (canEditProjectWithRole(role)) {

@@ -64,10 +64,17 @@ test('removed collaborator and unrelated employee have no task access', async ()
   });
 });
 
-test('manager/admin tasks.manage preserves privileged production scope', async () => {
-  await withAccess({ permissions: ['tasks.manage'], accountType: 'manager' }, async (req) => {
+test('manager tasks.manage retains capabilities on an assigned project', async () => {
+  await withAccess({ assignment: { role: 'member', status: 'active' }, permissions: ['tasks.manage'], accountType: 'manager' }, async (req) => {
     const caps = await resolveTaskCapabilities(req, taskDoc);
     assert.equal(caps.canView, true); assert.equal(caps.canDelete, true); assert.equal(caps.canManageCollaborators, true);
+  });
+});
+
+test('manager tasks.manage cannot read an unassigned project task', async () => {
+  await withAccess({ permissions: ['tasks.manage'], accountType: 'manager' }, async (req) => {
+    const caps = await resolveTaskCapabilities(req, taskDoc);
+    assert.equal(caps.canView, false);
   });
 });
 

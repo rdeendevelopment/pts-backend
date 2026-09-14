@@ -3,7 +3,7 @@ const projectsModule = require('../../projects');
 const userRepository = require('../../users/repositories/user.repository');
 const projectAssignmentRepository = require('../../projects/repositories/projectAssignment.repository');
 const taskErrorCodes = require('../errors/taskErrorCodes');
-const { canManageTasks, resolveUserIdFromAuth } = require('../helpers/taskAccessScope.helper');
+const { canViewAllTaskProjects, resolveUserIdFromAuth } = require('../helpers/taskAccessScope.helper');
 const {
   isBoardShareClientUser,
   assertClientBoardShare,
@@ -27,7 +27,7 @@ async function assertCanAccessProjectForTasks(req, projectId, {
     return project;
   }
 
-  if (!req?.v2Auth?.accountId || canManageTasks(req)) {
+  if (!req?.v2Auth?.accountId || canViewAllTaskProjects(req)) {
     return project;
   }
 

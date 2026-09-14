@@ -3,10 +3,11 @@ const { assertObjectId } = require('../../../kernel/validators/objectId');
 const { getTaskModel } = require('../models/task.model');
 const { getTaskWorkflowStatusModel } = require('../models/taskWorkflowStatus.model');
 const { getProjectModel } = require('../../projects/models/project.model');
+const projectAssignmentRepository = require('../../projects/repositories/projectAssignment.repository');
 const { getClientModel } = require('../../clients/models/client.model');
 const { getUserModel } = require('../../users/models/user.model');
 const timeEntryRepository = require('../../activity/repositories/timeEntry.repository');
-const { canManageTasks, resolveUserIdFromAuth } = require('../helpers/taskAccessScope.helper');
+const { canManageTasks, canViewAllTaskProjects, resolveUserIdFromAuth } = require('../helpers/taskAccessScope.helper');
 const userSummaryHelper = require('../../activity/helpers/userSummary.helper');
 const { parsePagination, buildPaginationMeta } = require('../helpers/taskAggregateQuery.helper');
 const taskErrorCodes = require('../errors/taskErrorCodes');
@@ -92,6 +93,13 @@ async function resolveProjectIdsByClient(clientId) {
   return rows.map((p) => String(p._id));
 }
 
+async function applyAccessibleProjectScope(req, match, requesterUserId) {
+  if (canViewAllTaskProjects(req)) return null;
+  const projectIds = await projectAssignmentRepository.listActiveProjectIdsByUserId(requesterUserId);
+  match.$and = [...(match.$and || []), { projectId: { $in: projectIds } }];
+  return projectIds;
+}
+
 function buildTaskMatch(filters = {}) {
   const match = { isDeleted: false, status: { $ne: 'archived' } };
 
@@ -168,6 +176,7 @@ async function getDashboard(req, query = {}) {
     search: query.search || null,
   };
   const match = buildTaskMatch(filters);
+  scope.accessibleProjectIds = await applyAccessibleProjectScope(req, match, scope.requesterUserId);
 
   const blockedIds = await getBlockedWorkflowStatusIds();
 
@@ -331,7 +340,9 @@ async function getWorkload(req, query = {}, { scope, match }) {
   let minutesByUser = new Map();
   if (userIds.length) {
     const timePipeline = [
-      { $match: { isDeleted: false, userId: { $in: userIds.map((id) => assertObjectId(id, 'userId')) }, ...(entryFilters.entryDateFrom || entryFilters.entryDateTo ? { entryDate: {
+      { $match: { isDeleted: false, userId: { $in: userIds.map((id) => assertObjectId(id, 'userId')) },
+        ...(scope.accessibleProjectIds ? { projectId: { $in: scope.accessibleProjectIds } } : {}),
+        ...(entryFilters.entryDateFrom || entryFilters.entryDateTo ? { entryDate: {
         ...(entryFilters.entryDateFrom ? { $gte: entryFilters.entryDateFrom } : {}),
         ...(entryFilters.entryDateTo ? { $lte: entryFilters.entryDateTo } : {}),
       } } : {}) } },
@@ -431,6 +442,7 @@ async function listTeamTasks(req, query = {}) {
   };
 
   const match = buildTaskMatch(filters);
+  await applyAccessibleProjectScope(req, match, scope.requesterUserId);
   const Task = getTaskModel();
 
   const sortKey = String(query.sort || '').trim();
@@ -523,6 +535,7 @@ async function getUserDashboard(req, userId, query = {}) {
     dueDateTo: query.dueDateTo || query.dueDateEnd || null,
     search: query.search || null,
   });
+  await applyAccessibleProjectScope(req, match, scope.requesterUserId);
 
   const [
     assigned,

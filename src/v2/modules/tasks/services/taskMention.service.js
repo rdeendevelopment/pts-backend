@@ -6,7 +6,7 @@ const { getTaskModel } = require('../models/task.model');
 const taskCommentRepository = require('../repositories/taskComment.repository');
 const taskCollaboratorRepository = require('../repositories/taskCollaborator.repository');
 const {
-  canManageTasks,
+  canViewAllTaskProjects,
   findUserIdFromAuth,
   resolveUserIdFromAuth,
 } = require('../helpers/taskAccessScope.helper');
@@ -48,7 +48,7 @@ async function loadProjectNames(projectIds = []) {
 }
 
 async function listMentions(req, query = {}) {
-  const isManager = canManageTasks(req);
+  const isManager = canViewAllTaskProjects(req);
   const userId = isManager
     ? await findUserIdFromAuth(req.v2Auth.accountId)
     : await resolveUserIdFromAuth(req.v2Auth.accountId);

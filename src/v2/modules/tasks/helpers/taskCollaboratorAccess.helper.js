@@ -4,6 +4,7 @@ const projectAssignmentRepository = require('../../projects/repositories/project
 const taskMemberRepository = require('../repositories/taskMember.repository');
 const {
   canManageTasks,
+  canViewAllTaskProjects,
   resolveUserIdFromAuth,
 } = require('./taskAccessScope.helper');
 const {
@@ -71,8 +72,6 @@ async function assertCanRemoveCollaborator(req, task, targetUserId) {
 }
 
 async function assertCanCreateTaskOnProject(req, projectId) {
-  if (canManageTasks(req)) return;
-
   if (isBoardShareClientUser(req)) {
     const share = req.boardShare
       || await assertClientBoardShare(req, projectId, BOARD_SHARE_ACTIONS.CREATE_TASK);
@@ -85,7 +84,16 @@ async function assertCanCreateTaskOnProject(req, projectId) {
     return;
   }
 
+  if (canViewAllTaskProjects(req)) return;
   const userId = await resolveUserIdFromAuth(req.v2Auth.accountId);
+  const assignment = await projectAssignmentRepository.findByProjectAndUser(projectId, userId);
+  if (!assignment || assignment.isDeleted || assignment.status !== 'active') {
+    throw new AppError('User is not assigned to this project', {
+      status: 403,
+      code: taskErrorCodes.TASK_ASSIGNEE_NOT_ON_PROJECT,
+    });
+  }
+  if (canManageTasks(req)) return;
   const role = await resolveProjectEditorRole(projectId, userId);
   if (!canEditProjectWithRole(role)) {
     throw new AppError('You do not have permission to create tasks on this project', {

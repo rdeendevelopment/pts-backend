@@ -529,9 +529,22 @@ async function completeTask(taskId, accountId, req) {
     throw new AppError('Task not found', { status: 404, code: taskErrorCodes.TASK_NOT_FOUND });
   }
   if (req?.taskSystem !== true) await assertCanEditTask(req, task);
+  if (task.status === 'completed') return enrichTask(task);
+
+  const statuses = await taskWorkflowStatusRepository.listByWorkflowId(task.workflowId);
+  const completedStatus = statuses.find((status) => status.category === 'done' && status.isTerminal);
+  if (!completedStatus) {
+    throw new AppError('Workflow has no completed status', {
+      status: 409,
+      code: taskErrorCodes.TASK_WORKFLOW_STATUS_NOT_FOUND,
+    });
+  }
+  const maxOrder = await taskRepository.findMaxOrder(task.projectId, completedStatus._id, task._id);
 
   const updated = await taskRepository.updateTask(taskId, {
     status: 'completed',
+    workflowStatusId: completedStatus._id,
+    workflowOrder: (maxOrder?.workflowOrder || 0) + WORKFLOW_ORDER_STEP,
     completedAt: new Date(),
     completedBy: accountId,
     updatedBy: accountId,

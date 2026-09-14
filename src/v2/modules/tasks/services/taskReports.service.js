@@ -3,7 +3,8 @@ const { assertObjectId } = require('../../../kernel/validators/objectId');
 const { getTaskModel } = require('../models/task.model');
 const { getProjectModel } = require('../../projects/models/project.model');
 const taskWorkflowStatusRepository = require('../repositories/taskWorkflowStatus.repository');
-const { canManageTasks } = require('../helpers/taskAccessScope.helper');
+const projectAssignmentRepository = require('../../projects/repositories/projectAssignment.repository');
+const { canManageTasks, canViewAllTaskProjects, resolveUserIdFromAuth } = require('../helpers/taskAccessScope.helper');
 const { buildReportsMatch } = require('../helpers/taskAnalyticsScope.helper');
 const taskErrorCodes = require('../errors/taskErrorCodes');
 
@@ -136,17 +137,19 @@ async function getWorkload(req) {
 
   const Task = getTaskModel();
   const now = new Date();
+  const projectMatch = await buildReportsMatch(req);
+  if (!projectMatch) return [];
 
   const [assigneeAgg, overdueAgg] = await Promise.all([
     Task.aggregate([
-      { $match: { isDeleted: false, status: { $ne: 'archived' } } },
+      { $match: { ...projectMatch, status: { $ne: 'archived' } } },
       { $unwind: '$assignees' },
       { $group: { _id: '$assignees.userId', name: { $first: '$assignees.name' }, total: { $sum: 1 } } },
       { $sort: { total: -1 } },
       { $limit: 30 },
     ]),
     Task.aggregate([
-      { $match: { isDeleted: false, status: 'active', dueDate: { $lt: now } } },
+      { $match: { ...projectMatch, status: 'active', dueDate: { $lt: now } } },
       { $unwind: '$assignees' },
       { $group: { _id: '$assignees.userId', overdue: { $sum: 1 } } },
     ]),
@@ -175,10 +178,15 @@ async function getProjectHealth(req) {
   const Task = getTaskModel();
   const Project = getProjectModel();
   const now = new Date();
+  const accessibleIds = canViewAllTaskProjects(req)
+    ? null
+    : await projectAssignmentRepository.listActiveProjectIdsByUserId(await resolveUserIdFromAuth(req.v2Auth.accountId));
+  if (accessibleIds && !accessibleIds.length) return [];
 
   const projects = await Project.find({
     isDeleted: false,
     status: { $nin: ['archived', 'cancelled', 'completed'] },
+    ...(accessibleIds ? { _id: { $in: accessibleIds } } : {}),
   })
     .select('name')
     .lean();

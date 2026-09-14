@@ -2,8 +2,9 @@ const { getTaskModel } = require('../models/task.model');
 const { getProjectModel } = require('../../projects/models/project.model');
 const { getTaskWorkflowStatusModel } = require('../models/taskWorkflowStatus.model');
 const { getTaskCollaboratorModel } = require('../models/taskCollaborator.model');
+const projectAssignmentRepository = require('../../projects/repositories/projectAssignment.repository');
 const { resolveUsersByIds, displayName } = require('../helpers/taskUser.helper');
-const { resolveUserIdFromAuth } = require('../helpers/taskAccessScope.helper');
+const { canViewAllTaskProjects, resolveUserIdFromAuth } = require('../helpers/taskAccessScope.helper');
 const { resolveTeamScope } = require('./taskTeamDashboard.service');
 const { parsePagination, buildPaginationMeta } = require('../helpers/taskAggregateQuery.helper');
 const { deriveTaskKeyPrefix } = require('../helpers/taskKeyPrefix.helper');
@@ -73,11 +74,7 @@ function assigneeCondition(userId) {
 }
 
 function isSuperAdminRequest(req) {
-  const auth = req?.v2Auth || {};
-  const roleSource = auth.sessionAccess?.roles || auth.roles || [];
-  const roles = Array.isArray(roleSource) ? roleSource : [];
-  const roleKeys = roles.map((role) => String(role?.key || role).toLowerCase());
-  return String(auth.accountType || '').toLowerCase() === 'super_admin' || roleKeys.includes('super_admin');
+  return canViewAllTaskProjects(req);
 }
 
 function projectPersonalScopeCondition(accountId, userId) {
@@ -225,6 +222,10 @@ async function listMyWork(req, query = {}) {
   const userId = await resolveUserIdFromAuth(req.v2Auth.accountId);
   const Collaborator = getTaskCollaboratorModel();
   const match = buildMatch(query);
+  if (!isSuperAdminRequest(req)) {
+    const projectIds = await projectAssignmentRepository.listActiveProjectIdsByUserId(userId);
+    addCondition(match, { projectId: { $in: projectIds } });
+  }
   const canViewWholeProject = Boolean(query.projectId) && isSuperAdminRequest(req);
   if (!canViewWholeProject) {
     const personalScope = projectPersonalScopeCondition(
@@ -265,6 +266,10 @@ async function listMyWork(req, query = {}) {
 async function listTeamWork(req, query = {}) {
   const scope = await resolveTeamScope(req);
   const match = buildMatch(query);
+  if (!isSuperAdminRequest(req)) {
+    const projectIds = await projectAssignmentRepository.listActiveProjectIdsByUserId(scope.requesterUserId);
+    addCondition(match, { projectId: { $in: projectIds } });
+  }
   const Collaborator = getTaskCollaboratorModel();
   if (query.userId) {
     const userId = objectId(query.userId, 'userId');

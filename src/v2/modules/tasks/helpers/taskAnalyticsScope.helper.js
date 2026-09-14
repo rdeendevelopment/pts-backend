@@ -7,7 +7,7 @@ const {
   resolveClientIdForAccount,
 } = require('../../board-shares/helpers/boardShareAccess.helper');
 const {
-  canManageTasks,
+  canViewAllTaskProjects,
   resolveUserIdFromAuth,
 } = require('./taskAccessScope.helper');
 
@@ -44,7 +44,7 @@ async function listScopedTaskIds(req, { limit = 400 } = {}) {
     return listClientSharedTaskIds(req, { limit });
   }
 
-  if (canManageTasks(req)) {
+  if (canViewAllTaskProjects(req)) {
     return listActiveNonArchivedTaskIds({ limit });
   }
 
@@ -79,9 +79,10 @@ async function listScopedTaskIds(req, { limit = 400 } = {}) {
     pushIds(fromProjects);
   }
 
-  if (collaboratorTaskIds.length) {
+  if (collaboratorTaskIds.length && accessibleProjectIds.length) {
     const fromCollab = await Task.find({
       _id: { $in: collaboratorTaskIds },
+      projectId: { $in: accessibleProjectIds },
       isDeleted: false,
       status: { $ne: 'archived' },
     })
@@ -94,23 +95,48 @@ async function listScopedTaskIds(req, { limit = 400 } = {}) {
   return taskIds;
 }
 
-function calendarDateRange() {
-  const from = new Date();
-  from.setDate(from.getDate() - 30);
-  const to = new Date();
-  to.setDate(to.getDate() + 60);
+function calendarDateRange(req) {
+  const { startDate, endDate } = req?.query || {};
+
+  let from = new Date();
+  let to = new Date();
+
+  if (startDate) {
+    try {
+      from = new Date(startDate);
+      if (isNaN(from.getTime())) from = new Date();
+    } catch {
+      from = new Date();
+    }
+  } else {
+    from.setDate(from.getDate() - 30);
+  }
+
+  if (endDate) {
+    try {
+      to = new Date(endDate);
+      if (isNaN(to.getTime())) to = new Date();
+    } catch {
+      to = new Date();
+    }
+  } else {
+    to.setDate(to.getDate() + 60);
+  }
+
+  from.setHours(0, 0, 0, 0);
+  to.setHours(23, 59, 59, 999);
+
   return { from, to };
 }
 
 async function buildCalendarMatch(req) {
-  const { from, to } = calendarDateRange();
+  const { from, to } = calendarDateRange(req);
   const base = {
     isDeleted: false,
-    status: { $ne: 'archived' },
     dueDate: { $gte: from, $lte: to },
   };
 
-  if (canManageTasks(req)) {
+  if (canViewAllTaskProjects(req)) {
     return base;
   }
 
@@ -119,6 +145,9 @@ async function buildCalendarMatch(req) {
     projectAssignmentRepository.listActiveProjectIdsByUserId(userId),
     taskCollaboratorRepository.listActiveTaskIdsByUserId(userId),
   ]);
+
+  if (!accessibleProjectIds.length) return null;
+  base.projectId = { $in: accessibleProjectIds };
 
   const orCond = [];
   if (accessibleProjectIds.length) {
@@ -145,7 +174,7 @@ async function buildReportsMatch(req, projectId = null) {
     match.projectId = projectId;
   }
 
-  if (canManageTasks(req)) {
+  if (canViewAllTaskProjects(req)) {
     return match;
   }
 

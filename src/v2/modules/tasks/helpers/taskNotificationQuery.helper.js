@@ -1,5 +1,5 @@
 const { assertObjectId } = require('../../../kernel/validators/objectId');
-const { canManageTasks } = require('./taskAccessScope.helper');
+const { canViewAllTaskProjects } = require('./taskAccessScope.helper');
 
 const DEFAULT_NOTIFICATION_LIMIT = 50;
 const MAX_NOTIFICATION_LIMIT = 100;
@@ -32,7 +32,7 @@ function parseNotificationListQuery(query = {}) {
 }
 
 async function resolveNotificationUserId(req, findUserIdFromAuth) {
-  const isManager = canManageTasks(req);
+  const isManager = canViewAllTaskProjects(req);
   const requestedUserId = req.query?.userId;
 
   if (isManager && requestedUserId) {
@@ -58,25 +58,8 @@ async function resolveNotificationUserId(req, findUserIdFromAuth) {
 function canViewMentionTask(task, userId, accessibleProjectIds = [], isManager = false, collaboratorTaskIds = []) {
   if (!task) return false;
   if (isManager) return true;
-
-  const uid = String(userId);
   const projectId = String(task.projectId);
-
-  if (accessibleProjectIds.some((id) => String(id) === projectId)) {
-    return true;
-  }
-
-  if ((task.assignees || []).some((row) => String(row.userId) === uid)) {
-    return true;
-  }
-
-  if (task.reviewerId && String(task.reviewerId) === uid) {
-    return true;
-  }
-
-  if (collaboratorTaskIds.some((id) => String(id) === String(task._id))) return true;
-
-  return false;
+  return accessibleProjectIds.some((id) => String(id) === projectId);
 }
 
 module.exports = {

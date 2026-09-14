@@ -4,7 +4,7 @@ const { getProjectModel } = require('../../projects/models/project.model');
 const taskRepository = require('../repositories/task.repository');
 const taskCommentRepository = require('../repositories/taskComment.repository');
 const { enrichTask } = require('./taskBoard.service');
-const { canManageTasks, resolveUserIdFromAuth } = require('../helpers/taskAccessScope.helper');
+const { canViewAllTaskProjects, resolveUserIdFromAuth } = require('../helpers/taskAccessScope.helper');
 const {
   DEFAULT_INBOX_LIMIT,
   DEFAULT_MY_TASKS_LIMIT,
@@ -32,6 +32,7 @@ function buildSelfScopeConditions(
   collaboratorTaskIds = [],
 ) {
   const relevanceOr = [];
+  if (!accessibleProjectIds.length) return relevanceOr;
 
   if (accessibleProjectIds.length) {
     relevanceOr.push({
@@ -49,11 +50,11 @@ function buildSelfScopeConditions(
   }
 
   if (mentionedTaskIds.length) {
-    relevanceOr.push({ _id: { $in: mentionedTaskIds } });
+    relevanceOr.push({ _id: { $in: mentionedTaskIds }, projectId: { $in: accessibleProjectIds } });
   }
 
   if (collaboratorTaskIds.length) {
-    relevanceOr.push({ _id: { $in: collaboratorTaskIds } });
+    relevanceOr.push({ _id: { $in: collaboratorTaskIds }, projectId: { $in: accessibleProjectIds } });
   }
 
   return relevanceOr;
@@ -66,6 +67,7 @@ function buildMyTasksScopeConditions(
   collaboratorTaskIds = [],
 ) {
   const relevanceOr = [];
+  if (!accessibleProjectIds.length) return relevanceOr;
 
   if (accessibleProjectIds.length) {
     relevanceOr.push({
@@ -77,7 +79,7 @@ function buildMyTasksScopeConditions(
   }
 
   if (collaboratorTaskIds.length) {
-    relevanceOr.push({ _id: { $in: collaboratorTaskIds } });
+    relevanceOr.push({ _id: { $in: collaboratorTaskIds }, projectId: { $in: accessibleProjectIds } });
   }
 
   return relevanceOr;
@@ -104,7 +106,7 @@ async function listAggregateView(req, query, {
 }) {
   const filters = parseAggregateFilters(query);
   const pagination = parsePagination(query, { defaultLimit });
-  const isManager = canManageTasks(req);
+  const isManager = canViewAllTaskProjects(req);
 
   if (baseStatus && !filters.status) filters.baseStatus = baseStatus;
   if (statusNe && !filters.status) filters.statusNe = statusNe;
@@ -167,7 +169,7 @@ async function getMyTasksSummary(req, query = {}) {
   const filters = parseAggregateFilters(query);
   if (!filters.status) filters.statusNe = 'archived';
 
-  if (!canManageTasks(req)) {
+  if (!canViewAllTaskProjects(req)) {
     const userId = await resolveUserIdFromAuth(req.v2Auth.accountId);
     const [accessibleProjectIds, collaboratorTaskIds] = await Promise.all([
       projectAssignmentRepository.listActiveProjectIdsByUserId(userId),

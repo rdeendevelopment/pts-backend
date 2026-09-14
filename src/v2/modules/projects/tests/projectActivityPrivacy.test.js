@@ -120,3 +120,24 @@ test('employee project detail rejects an unassigned project', async () => {
     (err) => err.status === 403
   );
 });
+
+test('broad project and activity permissions do not expose an unassigned project detail', async () => {
+  projectRepository.findById = async () => ({
+    _id: PROJECT_ID,
+    name: 'Private project',
+    isDeleted: false,
+  });
+  userRepository.findByAccountId = async () => ({ _id: EMPLOYEE_ID });
+  projectAssignmentRepository.findByProjectAndUser = async () => null;
+
+  await assert.rejects(
+    () => projectService.getProjectById(PROJECT_ID, {
+      v2Auth: {
+        accountId: '507f1f77bcf86cd799439015',
+        account: { accountType: 'manager' },
+        permissions: ['projects.manage', 'activity.view_all', 'tasks.manage'],
+      },
+    }),
+    (err) => err.status === 403,
+  );
+});

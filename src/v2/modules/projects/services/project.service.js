@@ -35,7 +35,7 @@ const projectStatsService = require('./projectStats.service');
 const projectEventService = require('./projectEvent.service');
 const notificationService = require('../../tasks/services/taskNotification.service');
 const retainerRenewalService = require('./retainerRenewal.service');
-const { canManageTasks, resolveUserIdFromAuth } = require('../../tasks/helpers/taskAccessScope.helper');
+const { resolveUserIdFromAuth } = require('../../tasks/helpers/taskAccessScope.helper');
 const { canViewAllProjectTimeEntries } = require('../../activity/helpers/access.helper');
 const timeEntryRepository = require('../../activity/repositories/timeEntry.repository');
 const projectPermanentDeleteService = require('./projectPermanentDelete.service');
@@ -336,8 +336,7 @@ async function resolveListProjectsAssignedUserId(query = {}, req = null) {
     return explicit;
   }
 
-  const permissions = req.v2Auth.permissions || [];
-  const canListAllProjects = permissions.includes('projects.manage') || canManageTasks(req);
+  const canListAllProjects = req.v2Auth.account?.accountType === 'super_admin';
 
   if (canListAllProjects) {
     return explicit;
@@ -548,19 +547,23 @@ async function getProjectById(projectId, req = null) {
   let assignment = null;
   let stats;
 
-  if (canViewAllActivity) {
-    stats = await projectStatsService.getStats(project._id);
-  } else {
+  if (req?.v2Auth?.accountId && req.v2Auth.account?.accountType !== 'super_admin') {
     const assignedUserId = await resolveUserIdFromAuth(req.v2Auth.accountId);
-    assignment = await projectAssignmentRepository.findByProjectAndUser(
-      project._id,
-      assignedUserId,
-    );
+    assignment = await projectAssignmentRepository.findByProjectAndUser(project._id, assignedUserId);
     if (!assignment || assignment.isDeleted || assignment.status !== 'active') {
-      throw new AppError('Project activity access forbidden', {
+      throw new AppError('Project access forbidden', {
         status: 403,
         code: projectErrorCodes.PROJECT_ACTIVITY_FORBIDDEN,
       });
+    }
+  }
+
+  if (canViewAllActivity) {
+    stats = await projectStatsService.getStats(project._id);
+  } else {
+    if (!assignment) {
+      const assignedUserId = await resolveUserIdFromAuth(req.v2Auth.accountId);
+      assignment = await projectAssignmentRepository.findByProjectAndUser(project._id, assignedUserId);
     }
     stats = projectStatsService.buildAssignmentScopedStats(project._id, assignment);
   }
