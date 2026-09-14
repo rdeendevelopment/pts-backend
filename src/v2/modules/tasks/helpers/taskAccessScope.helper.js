@@ -1,6 +1,7 @@
 const { AppError } = require('../../../kernel/errors');
 const userRepository = require('../../users/repositories/user.repository');
 const taskErrorCodes = require('../errors/taskErrorCodes');
+const { isSuperAdmin } = require('../../rbac/helpers/authorize.helper');
 
 function canManageTasks(req) {
   const permissions = req.v2Auth?.permissions || [];
@@ -8,7 +9,7 @@ function canManageTasks(req) {
 }
 
 function canViewAllTaskProjects(req) {
-  return req?.v2Auth?.account?.accountType === 'super_admin';
+  return isSuperAdmin(req?.v2Auth);
 }
 
 async function findUserIdFromAuth(accountId) {

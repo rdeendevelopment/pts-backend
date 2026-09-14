@@ -71,6 +71,28 @@ test('Super Admin project list includes every permitted project', async () => {
   const req = { v2Auth: { accountId: ACCOUNT_ID, account: { accountType: 'super_admin' }, permissions: ['projects.view'] } };
   const list = await projectService.listProjects({ include_team_summary: 'false' }, req);
   assert.deepEqual(list.items.map((project) => project.name), ['Assigned project', 'Unrelated project']);
+  assert.equal(list.pagination.total, 2);
+});
+
+test('employee with employee then super_admin RBAC roles bypasses assignment scope', async () => {
+  let assignmentLookups = 0;
+  projectAssignmentRepository.listActiveProjectIdsByUserId = async () => {
+    assignmentLookups += 1;
+    return [];
+  };
+  const req = {
+    v2Auth: {
+      accountId: ACCOUNT_ID,
+      account: { accountType: 'employee' },
+      sessionAccess: { roles: [{ key: 'employee' }, { key: 'super_admin' }] },
+      permissions: ['projects.view'],
+    },
+  };
+
+  const list = await projectService.listProjects({ include_team_summary: 'false' }, req);
+  assert.deepEqual(list.items.map((project) => project.name), ['Assigned project', 'Unrelated project']);
+  assert.equal(list.pagination.total, 2);
+  assert.equal(assignmentLookups, 0);
 });
 
 test('normal user with no active assignments receives an empty project list', async () => {

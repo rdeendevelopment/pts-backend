@@ -64,6 +64,7 @@ test('Team Work summaries preserve every assignee and resolved profile data', ()
 
 test('whole-project My Tasks access recognizes only super admins', () => {
   assert.equal(isSuperAdminRequest({ v2Auth: { account: { accountType: 'super_admin' } } }), true);
+  assert.equal(isSuperAdminRequest({ v2Auth: { account: { accountType: 'employee' }, sessionAccess: { roles: [{ key: 'employee' }, { key: 'super_admin' }] } } }), true);
   assert.equal(isSuperAdminRequest({ v2Auth: { account: { accountType: 'employee' }, roles: [{ key: 'super_admin' }] } }), false);
   assert.equal(isSuperAdminRequest({ v2Auth: { account: { accountType: 'admin' }, roles: ['admin'] } }), false);
   assert.equal(isSuperAdminRequest({ v2Auth: { account: { accountType: 'employee' } } }), false);

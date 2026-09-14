@@ -17,6 +17,7 @@ const saved = {
   findAssignment: projectAssignmentRepository.findByProjectAndUser,
   findUserByAccount: userRepository.findByAccountId,
   ensureRetainerBudget: retainerRenewalService.ensureRetainerBudgetOnAccess,
+  getStats: projectStatsService.getStats,
 };
 
 test.afterEach(() => {
@@ -24,6 +25,7 @@ test.afterEach(() => {
   projectAssignmentRepository.findByProjectAndUser = saved.findAssignment;
   userRepository.findByAccountId = saved.findUserByAccount;
   retainerRenewalService.ensureRetainerBudgetOnAccess = saved.ensureRetainerBudget;
+  projectStatsService.getStats = saved.getStats;
 });
 
 test('employee cannot access activity for an unassigned project', async () => {
@@ -140,4 +142,28 @@ test('broad project and activity permissions do not expose an unassigned project
     }),
     (err) => err.status === 403,
   );
+});
+
+test('employee with a Super Admin RBAC role can open an unassigned project from the list', async () => {
+  projectRepository.findById = async () => ({
+    _id: PROJECT_ID,
+    name: 'Admin-visible project',
+    isDeleted: false,
+  });
+  userRepository.findByAccountId = async () => ({ _id: EMPLOYEE_ID });
+  projectAssignmentRepository.findByProjectAndUser = async () => null;
+  retainerRenewalService.ensureRetainerBudgetOnAccess = async () => null;
+  projectStatsService.getStats = async () => ({ projectId: PROJECT_ID });
+
+  const result = await projectService.getProjectById(PROJECT_ID, {
+    v2Auth: {
+      accountId: '507f1f77bcf86cd799439015',
+      account: { accountType: 'employee' },
+      sessionAccess: { roles: [{ key: 'employee' }, { key: 'super_admin' }] },
+      permissions: ['projects.view', 'activity.view_all'],
+    },
+  });
+
+  assert.equal(result.id, PROJECT_ID);
+  assert.equal(result.name, 'Admin-visible project');
 });

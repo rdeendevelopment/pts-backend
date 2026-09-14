@@ -37,6 +37,7 @@ const notificationService = require('../../tasks/services/taskNotification.servi
 const retainerRenewalService = require('./retainerRenewal.service');
 const { resolveUserIdFromAuth } = require('../../tasks/helpers/taskAccessScope.helper');
 const { canViewAllProjectTimeEntries } = require('../../activity/helpers/access.helper');
+const { isSuperAdmin } = require('../../rbac/helpers/authorize.helper');
 const timeEntryRepository = require('../../activity/repositories/timeEntry.repository');
 const projectPermanentDeleteService = require('./projectPermanentDelete.service');
 const { getProjectOrThrow } = require('./projectAccess.service');
@@ -336,7 +337,7 @@ async function resolveListProjectsAssignedUserId(query = {}, req = null) {
     return explicit;
   }
 
-  const canListAllProjects = req.v2Auth.account?.accountType === 'super_admin';
+  const canListAllProjects = isSuperAdmin(req.v2Auth);
 
   if (canListAllProjects) {
     return explicit;
@@ -547,7 +548,7 @@ async function getProjectById(projectId, req = null) {
   let assignment = null;
   let stats;
 
-  if (req?.v2Auth?.accountId && req.v2Auth.account?.accountType !== 'super_admin') {
+  if (req?.v2Auth?.accountId && !isSuperAdmin(req.v2Auth)) {
     const assignedUserId = await resolveUserIdFromAuth(req.v2Auth.accountId);
     assignment = await projectAssignmentRepository.findByProjectAndUser(project._id, assignedUserId);
     if (!assignment || assignment.isDeleted || assignment.status !== 'active') {
