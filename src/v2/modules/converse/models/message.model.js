@@ -30,16 +30,37 @@ const ReadReceiptSchema = new Schema(
   { _id: false }
 );
 
+const ReactionSchema = new Schema(
+  {
+    emoji: { type: String, required: true },
+    userIds: { type: [Schema.Types.ObjectId], default: [] },
+  },
+  { _id: false }
+);
+
+const DeliveryReceiptSchema = new Schema(
+  {
+    userId: { type: Schema.Types.ObjectId, required: true },
+    deliveredAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
 const MessageSchema = new Schema(
   {
     conversationId: { type: Schema.Types.ObjectId, ref: 'PtsConversation', required: true, index: true },
     senderId: { type: Schema.Types.ObjectId, ref: 'PtsUser', required: true, index: true },
+    clientMessageId: { type: String, default: null, sparse: true },
     sequence: { type: Number, required: true, min: 1 },
     type: { type: String, enum: Object.values(MESSAGE_TYPES), default: MESSAGE_TYPES.TEXT },
     text: { type: String, default: '' },
     replyTo: { type: ReplyToSchema, default: null },
     attachments: { type: [AttachmentSchema], default: [] },
+    mentions: { type: [Schema.Types.ObjectId], default: [] },
+    mentionAll: { type: Boolean, default: false },
+    reactions: { type: [ReactionSchema], default: [] },
     readBy: { type: [ReadReceiptSchema], default: [] },
+    deliveredTo: { type: [DeliveryReceiptSchema], default: [] },
     isEdited: { type: Boolean, default: false },
     editedAt: { type: Date, default: null },
     isDeletedForEveryone: { type: Boolean, default: false, index: true },
@@ -54,8 +75,9 @@ const MessageSchema = new Schema(
   }
 );
 
-MessageSchema.index({ conversationId: 1, sequence: -1 });
-MessageSchema.index({ conversationId: 1, isDeletedForEveryone: 1, sequence: -1 });
+MessageSchema.index({ conversationId: 1, sequence: -1, _id: -1 });
+MessageSchema.index({ conversationId: 1, isDeletedForEveryone: 1, sequence: -1, _id: -1 });
+MessageSchema.index({ conversationId: 1, senderId: 1, clientMessageId: 1 }, { unique: true, sparse: true });
 
 async function ensureMessageIndexes() {
   const Message = getV2Model('PtsMessage', MessageSchema);

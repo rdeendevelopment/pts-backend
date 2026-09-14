@@ -22,6 +22,7 @@ const CLIENT_EVENTS = {
   ROOM_LEAVE_CONVERSATION: 'room.leave.conversation',
   CONVERSE_TYPING_START: 'converse.typing.start',
   CONVERSE_TYPING_STOP: 'converse.typing.stop',
+  CONVERSE_MESSAGE_DELIVERED_ACK: 'converse.message.delivered.ack',
 };
 
 /**
@@ -49,8 +50,14 @@ const SERVER_EVENTS = {
   ACTIVITY_TIMER_STOPPED: 'activity.timer.stopped',
   ACTIVITY_WEEK_REMINDER: 'activity.week.reminder',
   CONVERSE_MESSAGE_CREATED: 'converse.message.created',
+  CONVERSE_MESSAGE_UPDATED: 'converse.message.updated',
+  CONVERSE_MESSAGE_DELETED: 'converse.message.deleted',
   CONVERSE_CONVERSATION_UPDATED: 'converse.conversation.updated',
+  CONVERSE_CONVERSATION_JOINED: 'converse.conversation.joined',
+  CONVERSE_CONVERSATION_LEFT: 'converse.conversation.left',
+  CONVERSE_MEMBERSHIP_UPDATED: 'converse.membership.updated',
   CONVERSE_MESSAGE_READ: 'converse.message.read',
+  CONVERSE_MESSAGE_DELIVERED: 'converse.message.delivered',
   CONVERSE_UNREAD_UPDATED: 'converse.unread.updated',
   CONVERSE_TYPING_STARTED: 'converse.typing.started',
   CONVERSE_TYPING_STOPPED: 'converse.typing.stopped',

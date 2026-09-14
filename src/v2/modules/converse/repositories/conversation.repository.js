@@ -12,6 +12,11 @@ async function findDirectByKey(directKey) {
   return Conversation.findOne({ type: 'direct', directKey, isDeleted: false }).exec();
 }
 
+async function findProjectById(projectId) {
+  const Conversation = getConversationModel();
+  return Conversation.findOne({ type: 'project', projectId, isDeleted: false }).exec();
+}
+
 async function createConversation(data) {
   const Conversation = getConversationModel();
   return Conversation.create(data);
@@ -29,6 +34,7 @@ async function updateConversation(conversationId, updates) {
 module.exports = {
   findById,
   findDirectByKey,
+  findProjectById,
   createConversation,
   updateConversation,
 };

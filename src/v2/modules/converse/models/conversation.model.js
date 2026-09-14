@@ -20,6 +20,8 @@ const ConversationSchema = new Schema(
     title: { type: String, default: '', trim: true },
     avatar: { type: String, default: null },
     directKey: { type: String, default: null, index: true },
+    projectId: { type: Schema.Types.ObjectId, ref: 'PtsProject', default: null },
+    messageSequence: { type: Number, default: 0, min: 0 },
     memberCount: { type: Number, default: 0, min: 0 },
     adminUserIds: { type: [Schema.Types.ObjectId], default: [] },
     lastMessage: { type: LastMessageSchema, default: null },
@@ -36,9 +38,13 @@ const ConversationSchema = new Schema(
 
 ConversationSchema.index(
   { directKey: 1 },
-  { unique: true, partialFilterExpression: { type: CONVERSATION_TYPES.DIRECT, isDeleted: false } }
+  { unique: true, name: 'converse_active_direct_unique', partialFilterExpression: { type: CONVERSATION_TYPES.DIRECT, isDeleted: false } }
 );
 ConversationSchema.index({ isDeleted: 1, updatedAt: -1 });
+ConversationSchema.index(
+  { projectId: 1 },
+  { unique: true, partialFilterExpression: { type: CONVERSATION_TYPES.PROJECT, isDeleted: false } }
+);
 
 async function ensureConversationIndexes() {
   const Conversation = getV2Model('PtsConversation', ConversationSchema);

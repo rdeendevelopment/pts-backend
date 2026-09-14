@@ -1,8 +1,8 @@
-const socketService = require('../services/socket.service');
 const { warn } = require('../../../kernel/logger');
 
 /** Realtime is best-effort; business actions must not fail if socket is down. */
 function emitBestEffort(emitFn) {
+  const socketService = require('../services/socket.service');
   if (!socketService.isSocketReady()) return;
 
   try {

@@ -16,4 +16,5 @@ module.exports = {
   ensureConverseModuleIndexes,
   assertConversationParticipant: require('./services/converse.service').assertConversationParticipant,
   handleTyping: require('./services/converse.service').handleTyping,
+  handleMessageDeliveryAck: require('./services/converse.service').handleMessageDeliveryAck,
 };

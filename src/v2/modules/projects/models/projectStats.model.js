@@ -29,8 +29,6 @@ const ProjectStatsSchema = new Schema(
   }
 );
 
-ProjectStatsSchema.index({ projectId: 1 }, { unique: true, name: 'pts_project_stats_project_unique' });
-
 async function ensureProjectStatsIndexes() {
   const ProjectStats = getV2Model('PtsProjectStats', ProjectStatsSchema);
   await ProjectStats.createIndexes();

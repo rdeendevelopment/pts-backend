@@ -11,8 +11,14 @@ function actor(req) {
 }
 
 async function listConversations(req, res) {
-  const data = await converseService.listConversations(actor(req).userId);
+  const data = await converseService.listConversations(actor(req).userId, req.v2Auth);
   return sendSuccess(res, data);
+}
+
+async function createProjectRoom(req, res) {
+  const projectId = assertObjectId(req.body.projectId, 'projectId');
+  const result = await converseService.createProjectRoom(actor(req).userId, projectId, req.v2Auth);
+  return sendSuccess(res, result.conversation, { status: result.created ? 201 : 200 });
 }
 
 async function createDirect(req, res) {
@@ -29,20 +35,21 @@ async function createGroup(req, res) {
   const result = await converseService.createGroup(
     actor(req).userId,
     req.body.title,
-    req.body.memberIds || []
+    req.body.memberIds || [],
+    req.body.avatar || null
   );
   return sendSuccess(res, result.conversation, { status: 201 });
 }
 
 async function getConversation(req, res) {
   const conversationId = assertObjectId(req.params.conversationId, 'conversationId');
-  const data = await converseService.getConversation(conversationId, actor(req).userId);
+  const data = await converseService.getConversation(conversationId, actor(req).userId, req.v2Auth);
   return sendSuccess(res, data);
 }
 
 async function listMessages(req, res) {
   const conversationId = assertObjectId(req.params.conversationId, 'conversationId');
-  const data = await converseService.listMessages(conversationId, actor(req).userId, req.query);
+  const data = await converseService.listMessages(conversationId, actor(req).userId, req.query, req.v2Auth);
   return sendSuccess(res, data);
 }
 
@@ -52,7 +59,8 @@ async function sendMessage(req, res) {
     actor(req).userId,
     actor(req).displayName,
     conversationId,
-    req.body
+    req.body,
+    req.v2Auth
   );
   return sendSuccess(res, data, { status: 201 });
 }
@@ -62,7 +70,8 @@ async function markRead(req, res) {
   const data = await converseService.markConversationRead(
     conversationId,
     actor(req).userId,
-    req.body
+    req.body,
+    req.v2Auth
   );
   return sendSuccess(res, data);
 }
@@ -103,7 +112,8 @@ async function updateConversation(req, res) {
   const data = await converseService.updateParticipantSettings(
     conversationId,
     actor(req).userId,
-    req.body
+    req.body,
+    req.v2Auth
   );
   return sendSuccess(res, data);
 }
@@ -115,7 +125,8 @@ async function editMessage(req, res) {
     conversationId,
     messageId,
     actor(req).userId,
-    req.body.text
+    req.body.text,
+    req.v2Auth
   );
   return sendSuccess(res, data);
 }
@@ -126,13 +137,28 @@ async function deleteMessage(req, res) {
   const data = await converseService.deleteMessageForEveryone(
     conversationId,
     messageId,
-    actor(req).userId
+    actor(req).userId,
+    req.v2Auth
+  );
+  return sendSuccess(res, data);
+}
+
+async function toggleReaction(req, res) {
+  const conversationId = assertObjectId(req.params.conversationId, 'conversationId');
+  const messageId = assertObjectId(req.params.messageId, 'messageId');
+  const data = await converseService.toggleReaction(
+    conversationId, messageId, actor(req).userId, req.body.emoji, req.v2Auth
   );
   return sendSuccess(res, data);
 }
 
 async function getUnreadCount(req, res) {
-  const data = await converseService.getUnreadCount(actor(req).userId);
+  const data = await converseService.getUnreadCount(actor(req).userId, req.v2Auth);
+  return sendSuccess(res, data);
+}
+
+async function listTeamMembers(req, res) {
+  const data = await converseService.listTeamMembers(actor(req).userId, req.query);
   return sendSuccess(res, data);
 }
 
@@ -153,6 +179,7 @@ async function getConfig(req, res) {
 module.exports = {
   listConversations: asyncHandler(listConversations),
   createDirect: asyncHandler(createDirect),
+  createProjectRoom: asyncHandler(createProjectRoom),
   createGroup: asyncHandler(createGroup),
   getConversation: asyncHandler(getConversation),
   listMessages: asyncHandler(listMessages),
@@ -164,8 +191,10 @@ module.exports = {
   updateConversation: asyncHandler(updateConversation),
   editMessage: asyncHandler(editMessage),
   deleteMessage: asyncHandler(deleteMessage),
+  toggleReaction: asyncHandler(toggleReaction),
   getUnreadCount: asyncHandler(getUnreadCount),
   searchUsers: asyncHandler(searchUsers),
+  listTeamMembers: asyncHandler(listTeamMembers),
   getOnlineUsers: asyncHandler(getOnlineUsers),
   getConfig: asyncHandler(getConfig),
 };

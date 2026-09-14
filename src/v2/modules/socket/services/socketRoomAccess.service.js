@@ -63,10 +63,10 @@ async function assertTaskRoomAccess(taskId, userId) {
   return getTaskRoom(normalizedTaskId);
 }
 
-async function assertConversationRoomAccess(conversationId, userId) {
+async function assertConversationRoomAccess(conversationId, userId, auth = null) {
   const normalizedConversationId = assertObjectId(conversationId, 'conversationId');
   const converseService = require('../../converse/services/converse.service');
-  await converseService.assertConversationParticipant(normalizedConversationId, userId);
+  await converseService.assertConversationParticipant(normalizedConversationId, userId, auth);
   return getConversationRoom(normalizedConversationId);
 }
 

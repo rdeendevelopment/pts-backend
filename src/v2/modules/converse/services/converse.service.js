@@ -8,11 +8,12 @@ const {
   MESSAGE_TYPES,
   MIN_GROUP_PARTICIPANTS,
   MAX_GROUP_TITLE_LENGTH,
+  ADMIN_ROLES,
 } = require('../constants/converse.constants');
 const converseErrorCodes = require('../errors/converseErrorCodes');
 const { makeDirectKey } = require('../helpers/directKey.helper');
 const { sanitizeText } = require('../helpers/sanitizeText.helper');
-const { getActiveParticipantOrThrow, assertCanManageParticipants } = require('../helpers/access.helper');
+const { getAuthorizedMembership, assertProjectAccess, assertCanManageParticipants } = require('../helpers/access.helper');
 const {
   emitConverseMessageDelivered,
   emitConverseConversationUpdated,
@@ -20,6 +21,11 @@ const {
   emitConverseUnreadUpdated,
   emitConverseTypingStarted,
   emitConverseTypingStopped,
+  emitConverseConversationAvailable,
+  emitConverseMessageUpdated,
+  emitConverseMessageDeleted,
+  emitConverseMembershipUpdated,
+  evictConverseUserFromRoom,
 } = require('../../socket/helpers/converseSocketEvents.helper');
 const conversationRepository = require('../repositories/conversation.repository');
 const participantRepository = require('../repositories/participant.repository');
@@ -51,12 +57,28 @@ async function enrichDirectConversation(dto, actorUserId) {
 }
 
 async function buildConversationDto(conversation, participant, actorUserId, extras = {}) {
-  const participants = await participantRepository.listActiveByConversationId(conversation._id);
+  const participants = await authorizedRecipients(conversation);
   const dto = toConversationDto(conversation, participant, {
     memberIds: participants.map((row) => String(row.userId)),
     ...extras,
   });
+  if (conversation.type === CONVERSATION_TYPES.PROJECT) dto.memberCount = participants.length;
   return enrichDirectConversation(dto, actorUserId);
+}
+
+async function authorizedRecipients(conversation) {
+  const participants = await participantRepository.listActiveByConversationId(conversation._id);
+  if (conversation.type !== CONVERSATION_TYPES.PROJECT) return participants;
+  const allowed = [];
+  for (const participant of participants) {
+    try {
+      await assertProjectAccess(conversation.projectId, participant.userId);
+      allowed.push(participant);
+    } catch (_error) {
+      // A stale project-room participant cannot receive project messages.
+    }
+  }
+  return allowed;
 }
 
 async function createDirect(actorUserId, actorName, recipientUserId) {
@@ -77,31 +99,65 @@ async function createDirect(actorUserId, actorName, recipientUserId) {
   }
 
   const directKey = makeDirectKey(actorUserId, recipientId);
-  const existing = await conversationRepository.findDirectByKey(directKey);
-  if (existing) {
-    const membership = await participantRepository.findMembership(existing._id, actorUserId);
-    const dto = await buildConversationDto(existing, membership, actorUserId);
-    return { conversation: dto, created: false };
+  let conversation = await conversationRepository.findDirectByKey(directKey);
+  let created = false;
+  if (!conversation) {
+    try {
+      conversation = await conversationRepository.createConversation({
+        type: CONVERSATION_TYPES.DIRECT,
+        directKey,
+        memberCount: 2,
+        createdBy: actorUserId,
+      });
+      created = true;
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      conversation = await conversationRepository.findDirectByKey(directKey);
+      if (!conversation) throw error;
+    }
   }
 
-  const conversation = await conversationRepository.createConversation({
-    type: CONVERSATION_TYPES.DIRECT,
-    directKey,
-    memberCount: 2,
-    createdBy: actorUserId,
-  });
-
-  await participantRepository.createParticipants([
-    { conversationId: conversation._id, userId: actorUserId, role: MEMBER_ROLES.MEMBER, joinedAt: new Date() },
-    { conversationId: conversation._id, userId: recipientId, role: MEMBER_ROLES.MEMBER, joinedAt: new Date() },
+  await Promise.all([
+    participantRepository.ensureParticipant(conversation._id, actorUserId),
+    participantRepository.ensureParticipant(conversation._id, recipientId),
   ]);
 
   const membership = await participantRepository.findActiveMembership(conversation._id, actorUserId);
   const dto = await buildConversationDto(conversation, membership, actorUserId);
-  return { conversation: dto, created: true };
+  if (created) {
+    const recipientMembership = await participantRepository.findActiveMembership(conversation._id, recipientId);
+    const recipientDto = await buildConversationDto(conversation, recipientMembership, recipientId);
+    emitConverseConversationAvailable(recipientId, recipientDto);
+  }
+  return { conversation: dto, created };
 }
 
-async function createGroup(actorUserId, title, memberIds = []) {
+async function createProjectRoom(actorUserId, projectId, auth = null) {
+  const id = assertObjectId(projectId, 'projectId');
+  await assertProjectAccess(id, actorUserId, auth);
+  let conversation = await conversationRepository.findProjectById(id);
+  let created = false;
+  if (!conversation) {
+    const project = await require('../../projects').getProjectForActivity(id);
+    try {
+      conversation = await conversationRepository.createConversation({
+        type: CONVERSATION_TYPES.PROJECT,
+        projectId: id,
+        title: project.name,
+        createdBy: actorUserId,
+      });
+      created = true;
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      conversation = await conversationRepository.findProjectById(id);
+      if (!conversation) throw error;
+    }
+  }
+  const membership = await participantRepository.ensureParticipant(conversation._id, actorUserId);
+  return { conversation: await buildConversationDto(conversation, membership, actorUserId), created };
+}
+
+async function createGroup(actorUserId, title, memberIds = [], avatar = null) {
   const sanitizedTitle = sanitizeText(title, MAX_GROUP_TITLE_LENGTH);
   if (!sanitizedTitle) {
     throw new AppError('Group title is required', {
@@ -118,9 +174,17 @@ async function createGroup(actorUserId, title, memberIds = []) {
     });
   }
 
+  for (const userId of uniqueMemberIds) {
+    const member = await userRepository.findById(assertObjectId(userId, 'memberId'));
+    if (!member || member.status !== 'active') {
+      throw new AppError('Group member not found', { status: 404, code: converseErrorCodes.CONVERSE_NOT_FOUND });
+    }
+  }
+
   const conversation = await conversationRepository.createConversation({
     type: CONVERSATION_TYPES.GROUP,
     title: sanitizedTitle,
+    avatar: avatar ? String(avatar).trim().slice(0, 2048) : null,
     memberCount: uniqueMemberIds.length,
     adminUserIds: [actorUserId],
     createdBy: actorUserId,
@@ -135,10 +199,16 @@ async function createGroup(actorUserId, title, memberIds = []) {
 
   const membership = await participantRepository.findActiveMembership(conversation._id, actorUserId);
   const dto = await buildConversationDto(conversation, membership, actorUserId);
+  for (const userId of uniqueMemberIds) {
+    if (userId !== String(actorUserId)) {
+      const participant = await participantRepository.findActiveMembership(conversation._id, userId);
+      emitConverseConversationAvailable(userId, await buildConversationDto(conversation, participant, userId));
+    }
+  }
   return { conversation: dto, created: true };
 }
 
-async function listConversations(actorUserId) {
+async function listConversations(actorUserId, auth = null) {
   const memberships = await participantRepository.listActiveByUserId(actorUserId);
   if (!memberships.length) return [];
 
@@ -146,14 +216,31 @@ async function listConversations(actorUserId) {
   const conversations = await Promise.all(conversationIds.map((id) => conversationRepository.findById(id)));
   const membershipByConversation = new Map(memberships.map((row) => [String(row.conversationId), row]));
 
-  const rows = conversations
-    .filter(Boolean)
-    .map((conversation) => {
-      const membership = membershipByConversation.get(String(conversation._id));
-      return toConversationDto(conversation, membership, {
-        memberIds: [],
-      });
+  const visible = [];
+  for (const conversation of conversations.filter(Boolean)) {
+    if (conversation.type === CONVERSATION_TYPES.PROJECT) {
+      try {
+        await assertProjectAccess(conversation.projectId, actorUserId, auth);
+      } catch (_error) {
+        continue;
+      }
+    }
+    visible.push(conversation);
+  }
+
+  const rows = await Promise.all(visible.map(async (conversation) => {
+    const membership = membershipByConversation.get(String(conversation._id));
+    const participants = conversation.type === CONVERSATION_TYPES.PROJECT
+      ? await authorizedRecipients(conversation)
+      : conversation.type === CONVERSATION_TYPES.DIRECT
+        ? await participantRepository.listActiveByConversationId(conversation._id)
+        : [];
+    const dto = toConversationDto(conversation, membership, {
+      memberIds: participants.map((row) => String(row.userId)),
     });
+    if (conversation.type === CONVERSATION_TYPES.PROJECT) dto.memberCount = participants.length;
+    return dto;
+  }));
 
   const enriched = await Promise.all(rows.map((row) => enrichDirectConversation(row, actorUserId)));
 
@@ -167,7 +254,7 @@ async function listConversations(actorUserId) {
   return enriched;
 }
 
-async function getConversation(conversationId, actorUserId) {
+async function getConversation(conversationId, actorUserId, auth = null) {
   const id = assertObjectId(conversationId, 'conversationId');
   const conversation = await conversationRepository.findById(id);
   if (!conversation) {
@@ -176,8 +263,8 @@ async function getConversation(conversationId, actorUserId) {
       code: converseErrorCodes.CONVERSE_NOT_FOUND,
     });
   }
-  const membership = await getActiveParticipantOrThrow(id, actorUserId);
-  const participants = await participantRepository.listActiveByConversationId(id);
+  const membership = await getAuthorizedMembership(id, actorUserId, auth);
+  const participants = await authorizedRecipients(conversation);
   const userMap = await resolveUsersMap(participants.map((row) => row.userId));
   const members = participants.map((row) => ({
     ...userMap.get(String(row.userId)),
@@ -186,31 +273,48 @@ async function getConversation(conversationId, actorUserId) {
   return buildConversationDto(conversation, membership, actorUserId, { members });
 }
 
-async function listMessages(conversationId, actorUserId, query = {}) {
+async function listMessages(conversationId, actorUserId, query = {}, auth = null) {
   const id = assertObjectId(conversationId, 'conversationId');
-  await getActiveParticipantOrThrow(id, actorUserId);
+  await getAuthorizedMembership(id, actorUserId, auth);
 
-  const page = Math.max(1, parseInt(query.page, 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 40));
-  const skip = (page - 1) * limit;
+  let beforeCursor = null;
+  if (query.before !== undefined) {
+    const match = String(query.before).match(/^([1-9]\d*):([a-f\d]{24})$/i);
+    const sequence = Number(match?.[1]);
+    if (!match || !Number.isSafeInteger(sequence)) {
+      throw new AppError('Invalid message cursor', { status: 400, code: converseErrorCodes.CONVERSE_INVALID_REQUEST });
+    }
+    beforeCursor = { sequence, messageId: assertObjectId(match[2], 'messageId') };
+  }
 
-  const { items, total } = await messageRepository.listByConversation(id, actorUserId, { skip, limit });
+  const { items, hasMore, nextCursor } = await messageRepository.listByConversation(id, actorUserId, { beforeCursor, limit });
   const senderMap = await resolveUsersMap(items.map((row) => row.senderId));
 
   return {
     data: items.map((row) => toMessageDto(row, senderMap.get(String(row.senderId))?.displayName || '')),
     meta: {
-      page,
       limit,
-      total,
-      hasNextPage: skip + items.length < total,
+      hasNextPage: hasMore,
+      nextCursor,
     },
   };
 }
 
-async function sendMessage(actorUserId, actorName, conversationId, payload = {}) {
+async function sendMessage(actorUserId, actorName, conversationId, payload = {}, auth = null) {
   const id = assertObjectId(conversationId, 'conversationId');
-  await getActiveParticipantOrThrow(id, actorUserId);
+  const membership = await getAuthorizedMembership(id, actorUserId, auth);
+  const conversationBeforeSend = await conversationRepository.findById(id);
+
+  // Check for idempotency: if clientMessageId provided and message exists, return existing
+  const clientMessageId = payload.clientMessageId ? String(payload.clientMessageId).trim() : null;
+  if (clientMessageId) {
+    const existing = await messageRepository.findByClientMessageId(id, actorUserId, clientMessageId);
+    if (existing) {
+      const senders = await resolveUsersMap([existing.senderId]);
+      return toMessageDto(existing, senders.get(String(existing.senderId))?.displayName || actorName);
+    }
+  }
 
   const text = payload.text ? sanitizeText(payload.text) : '';
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
@@ -221,16 +325,70 @@ async function sendMessage(actorUserId, actorName, conversationId, payload = {})
     });
   }
 
+  const mentions = [...new Set((Array.isArray(payload.mentions) ? payload.mentions : []).map((value) =>
+    String(assertObjectId(value, 'mentionUserId'))))];
+  if (mentions.length > 20) {
+    throw new AppError('Too many mentions', { status: 422, code: converseErrorCodes.CONVERSE_INVALID_REQUEST });
+  }
+  for (const userId of mentions) {
+    const mentionedUser = await userRepository.findById(userId);
+    if (!mentionedUser || mentionedUser.status !== 'active') {
+      throw new AppError('Mentioned user is unavailable', { status: 404, code: converseErrorCodes.CONVERSE_NOT_FOUND });
+    }
+  }
+  const mentionAll = payload.mentionAll === true;
+  if (mentionAll && (conversationBeforeSend?.type !== CONVERSATION_TYPES.GROUP || !ADMIN_ROLES.has(membership.role))) {
+    throw new AppError('@all requires group admin access', { status: 403, code: converseErrorCodes.CONVERSE_FORBIDDEN });
+  }
+  if (conversationBeforeSend?.type === CONVERSATION_TYPES.PROJECT) {
+    for (const userId of mentions) {
+      await assertProjectAccess(conversationBeforeSend.projectId, userId);
+      await participantRepository.ensureParticipant(id, userId);
+    }
+  } else if (mentions.length) {
+    const allowedIds = new Set((await participantRepository.listActiveByConversationId(id)).map((row) => String(row.userId)));
+    if (mentions.some((userId) => !allowedIds.has(userId))) {
+      throw new AppError('Mentioned user is not in this conversation', {
+        status: 403, code: converseErrorCodes.CONVERSE_FORBIDDEN,
+      });
+    }
+  }
+
+  let replyTo = null;
+  if (payload.replyToMessageId) {
+    const replyId = assertObjectId(payload.replyToMessageId, 'replyToMessageId');
+    const original = await messageRepository.findById(replyId);
+    if (!original || String(original.conversationId) !== String(id)) {
+      throw new AppError('Reply message not found in conversation', {
+        status: 404, code: converseErrorCodes.CONVERSE_MESSAGE_NOT_FOUND,
+      });
+    }
+    const senders = await resolveUsersMap([original.senderId]);
+    replyTo = {
+      messageId: original._id,
+      text: original.text || '',
+      senderId: original.senderId,
+      senderName: senders.get(String(original.senderId))?.displayName || '',
+    };
+  }
+
   const sequence = await messageRepository.nextSequence(id);
+  if (!sequence) {
+    throw new AppError('Conversation not found', { status: 404, code: converseErrorCodes.CONVERSE_NOT_FOUND });
+  }
   const msgType = attachments.length ? MESSAGE_TYPES.FILE : MESSAGE_TYPES.TEXT;
 
   const message = await messageRepository.createMessage({
     conversationId: id,
     senderId: actorUserId,
+    clientMessageId,
     sequence,
     type: msgType,
     text,
+    replyTo,
     attachments,
+    mentions,
+    mentionAll,
     readBy: [{ userId: actorUserId, readAt: new Date() }],
   });
 
@@ -243,19 +401,44 @@ async function sendMessage(actorUserId, actorName, conversationId, payload = {})
     createdAt: message.createdAt,
   };
 
-  await conversationRepository.updateConversation(id, { lastMessage });
-  await participantRepository.incrementUnreadForOthers(id, actorUserId);
+  const conversation = await conversationRepository.updateConversation(id, { lastMessage });
+  const allowedParticipants = await authorizedRecipients(conversation);
+  await participantRepository.incrementUnreadForOthers(id, actorUserId, allowedParticipants.map((row) => row.userId));
+  const mentionTargets = new Set(mentions);
+  if (mentionAll) allowedParticipants.forEach((row) => mentionTargets.add(String(row.userId)));
+  mentionTargets.delete(String(actorUserId));
+  await participantRepository.incrementMentions(id, [...mentionTargets]);
 
   const dto = toMessageDto(message, actorName);
   const participants = await participantRepository.listActiveByConversationId(id);
-
-  emitConverseMessageDelivered(id, dto, participants);
+  emitConverseMessageDelivered(id, dto, participants.filter((row) =>
+    allowedParticipants.some((allowed) => String(allowed.userId) === String(row.userId))
+  ));
   return dto;
 }
 
-async function markConversationRead(conversationId, actorUserId, payload = {}) {
+async function toggleReaction(conversationId, messageId, actorUserId, emoji, auth = null) {
   const id = assertObjectId(conversationId, 'conversationId');
-  await getActiveParticipantOrThrow(id, actorUserId);
+  const mid = assertObjectId(messageId, 'messageId');
+  await getAuthorizedMembership(id, actorUserId, auth);
+  const allowedEmoji = new Set(['👍', '❤️', '😂', '✅', '👀', '🎉']);
+  if (!allowedEmoji.has(emoji)) {
+    throw new AppError('Unsupported reaction', { status: 422, code: converseErrorCodes.CONVERSE_INVALID_REQUEST });
+  }
+  const existing = await messageRepository.findById(mid);
+  if (!existing || String(existing.conversationId) !== String(id)) {
+    throw new AppError('Message not found', { status: 404, code: converseErrorCodes.CONVERSE_MESSAGE_NOT_FOUND });
+  }
+  const updated = await messageRepository.toggleReaction(mid, actorUserId, emoji);
+  const senders = await resolveUsersMap([updated.senderId]);
+  const dto = toMessageDto(updated, senders.get(String(updated.senderId))?.displayName || '');
+  emitConverseMessageUpdated(id, dto, await authorizedRecipients(await conversationRepository.findById(id)));
+  return dto;
+}
+
+async function markConversationRead(conversationId, actorUserId, payload = {}, auth = null) {
+  const id = assertObjectId(conversationId, 'conversationId');
+  const membership = await getAuthorizedMembership(id, actorUserId, auth);
 
   const now = new Date();
   let messageId = payload.messageId || payload.lastReadMessageId || null;
@@ -265,35 +448,46 @@ async function markConversationRead(conversationId, actorUserId, payload = {}) {
     messageId = conversation?.lastMessage?.messageId || null;
   }
 
+  let readSequence = Number(membership.lastReadSequence || 0);
+  if (messageId) {
+    const message = await messageRepository.findAnyById(assertObjectId(messageId, 'messageId'));
+    if (!message || String(message.conversationId) !== String(id)) {
+      throw new AppError('Message not found in conversation', { status: 404, code: converseErrorCodes.CONVERSE_MESSAGE_NOT_FOUND });
+    }
+    readSequence = Math.max(readSequence, Number(message.sequence || 0));
+  }
+  const unreadCount = await messageRepository.countUnreadAfter(id, actorUserId, readSequence);
   await participantRepository.updateParticipant(id, actorUserId, {
-    unreadCount: 0,
+    unreadCount,
     mentionCount: 0,
     lastReadAt: now,
+    lastReadSequence: readSequence,
     ...(messageId ? { lastReadMessageId: messageId } : {}),
   });
 
   if (messageId) {
     await messageRepository.pushReadReceipt(messageId, actorUserId, now);
+    const conversation = await conversationRepository.findById(id);
     emitConverseMessageRead(id, {
       conversationId: String(id),
       messageId: String(messageId),
       userId: String(actorUserId),
       readAt: now,
-    });
+    }, await authorizedRecipients(conversation));
   }
 
   emitConverseUnreadUpdated(actorUserId, {
     conversationId: String(id),
-    unreadCount: 0,
+    unreadCount,
     lastReadMessageId: messageId ? String(messageId) : null,
   });
 
-  return { read: true, conversationId: String(id), messageId: messageId ? String(messageId) : null };
+  return { read: true, conversationId: String(id), messageId: messageId ? String(messageId) : null, unreadCount };
 }
 
 async function addParticipants(conversationId, actorUserId, memberIds = []) {
   const id = assertObjectId(conversationId, 'conversationId');
-  const membership = await getActiveParticipantOrThrow(id, actorUserId);
+  const membership = await getAuthorizedMembership(id, actorUserId);
   assertCanManageParticipants(membership);
 
   const conversation = await conversationRepository.findById(id);
@@ -306,6 +500,10 @@ async function addParticipants(conversationId, actorUserId, memberIds = []) {
 
   const uniqueIds = [...new Set(memberIds.map(String).filter(Boolean))];
   for (const userId of uniqueIds) {
+    const user = await userRepository.findById(assertObjectId(userId, 'memberId'));
+    if (!user || user.status !== 'active') {
+      throw new AppError('Group member not found', { status: 404, code: converseErrorCodes.CONVERSE_NOT_FOUND });
+    }
     const existing = await participantRepository.findMembership(id, userId);
     if (existing?.leftAt) {
       await participantRepository.updateParticipant(id, userId, {
@@ -331,13 +529,18 @@ async function addParticipants(conversationId, actorUserId, memberIds = []) {
 
   const dto = await getConversation(id, actorUserId);
   emitConverseConversationUpdated(id, dto);
+  emitConverseMembershipUpdated(id, { conversationId: String(id), memberIds: dto.memberIds });
+  for (const userId of uniqueIds) {
+    const participant = await participantRepository.findActiveMembership(id, userId);
+    if (participant) emitConverseConversationAvailable(userId, await buildConversationDto(conversation, participant, userId));
+  }
   return dto;
 }
 
 async function removeParticipant(conversationId, actorUserId, targetUserId) {
   const id = assertObjectId(conversationId, 'conversationId');
   const targetId = assertObjectId(targetUserId, 'userId');
-  const membership = await getActiveParticipantOrThrow(id, actorUserId);
+  const membership = await getAuthorizedMembership(id, actorUserId);
   assertCanManageParticipants(membership);
 
   const targetMembership = await participantRepository.findActiveMembership(id, targetId);
@@ -354,6 +557,11 @@ async function removeParticipant(conversationId, actorUserId, targetUserId) {
       code: converseErrorCodes.CONVERSE_FORBIDDEN,
     });
   }
+  if (targetMembership.role === MEMBER_ROLES.ADMIN && membership.role !== MEMBER_ROLES.OWNER) {
+    throw new AppError('Only the group owner can remove an admin', {
+      status: 403, code: converseErrorCodes.CONVERSE_FORBIDDEN,
+    });
+  }
 
   await participantRepository.updateParticipant(id, targetId, {
     leftAt: new Date(),
@@ -368,12 +576,20 @@ async function removeParticipant(conversationId, actorUserId, targetUserId) {
       .map((row) => row.userId),
   });
 
+  evictConverseUserFromRoom(id, targetId);
+  emitConverseMembershipUpdated(id, { conversationId: String(id), removedUserId: String(targetId) });
+  emitConverseMembershipUpdated(null, { conversationId: String(id), removedUserId: String(targetId) }, targetId);
+
   return { removed: true, userId: String(targetId) };
 }
 
 async function leaveConversation(conversationId, actorUserId) {
   const id = assertObjectId(conversationId, 'conversationId');
-  const membership = await getActiveParticipantOrThrow(id, actorUserId);
+  const conversation = await conversationRepository.findById(id);
+  if (!conversation || conversation.type !== CONVERSATION_TYPES.GROUP) {
+    throw new AppError('Only group members can leave a group', { status: 400, code: converseErrorCodes.CONVERSE_INVALID_REQUEST });
+  }
+  const membership = await getAuthorizedMembership(id, actorUserId);
 
   if (membership.role === MEMBER_ROLES.OWNER) {
     throw new AppError('Transfer ownership before leaving the group', {
@@ -389,24 +605,34 @@ async function leaveConversation(conversationId, actorUserId) {
 
   const participants = await participantRepository.listActiveByConversationId(id);
   await conversationRepository.updateConversation(id, { memberCount: participants.length });
+  evictConverseUserFromRoom(id, actorUserId);
+  emitConverseMembershipUpdated(id, { conversationId: String(id), removedUserId: String(actorUserId) });
+  emitConverseMembershipUpdated(null, { conversationId: String(id), removedUserId: String(actorUserId) }, actorUserId);
   return { left: true };
 }
 
 async function updateGroupTitle(conversationId, actorUserId, title) {
   const id = assertObjectId(conversationId, 'conversationId');
-  const membership = await getActiveParticipantOrThrow(id, actorUserId);
+  const conversation = await conversationRepository.findById(id);
+  if (!conversation || conversation.type !== CONVERSATION_TYPES.GROUP) {
+    throw new AppError('Only groups can be renamed', { status: 400, code: converseErrorCodes.CONVERSE_INVALID_REQUEST });
+  }
+  const membership = await getAuthorizedMembership(id, actorUserId);
   assertCanManageParticipants(membership);
 
   const sanitizedTitle = sanitizeText(title, MAX_GROUP_TITLE_LENGTH);
+  if (!sanitizedTitle) {
+    throw new AppError('Group title is required', { status: 400, code: converseErrorCodes.CONVERSE_INVALID_REQUEST });
+  }
   const updated = await conversationRepository.updateConversation(id, { title: sanitizedTitle });
   const dto = await buildConversationDto(updated, membership, actorUserId);
   emitConverseConversationUpdated(id, dto);
   return dto;
 }
 
-async function updateParticipantSettings(conversationId, actorUserId, settings = {}) {
+async function updateParticipantSettings(conversationId, actorUserId, settings = {}, auth = null) {
   const id = assertObjectId(conversationId, 'conversationId');
-  await getActiveParticipantOrThrow(id, actorUserId);
+  await getAuthorizedMembership(id, actorUserId, auth);
 
   const updates = {};
   if (settings.isPinned !== undefined) updates.isPinned = Boolean(settings.isPinned);
@@ -417,10 +643,10 @@ async function updateParticipantSettings(conversationId, actorUserId, settings =
   return buildConversationDto(conversation, membership, actorUserId);
 }
 
-async function editMessage(conversationId, messageId, actorUserId, text) {
+async function editMessage(conversationId, messageId, actorUserId, text, auth = null) {
   const id = assertObjectId(conversationId, 'conversationId');
   const mid = assertObjectId(messageId, 'messageId');
-  await getActiveParticipantOrThrow(id, actorUserId);
+  await getAuthorizedMembership(id, actorUserId, auth);
 
   const message = await messageRepository.findById(mid);
   if (!message || String(message.conversationId) !== String(id)) {
@@ -444,13 +670,15 @@ async function editMessage(conversationId, messageId, actorUserId, text) {
   });
 
   const users = await resolveUsersMap([actorUserId]);
-  return toMessageDto(updated, users.get(String(actorUserId))?.displayName || '');
+  const dto = toMessageDto(updated, users.get(String(actorUserId))?.displayName || '');
+  emitConverseMessageUpdated(id, dto, await authorizedRecipients(await conversationRepository.findById(id)));
+  return dto;
 }
 
-async function deleteMessageForEveryone(conversationId, messageId, actorUserId) {
+async function deleteMessageForEveryone(conversationId, messageId, actorUserId, auth = null) {
   const id = assertObjectId(conversationId, 'conversationId');
   const mid = assertObjectId(messageId, 'messageId');
-  await getActiveParticipantOrThrow(id, actorUserId);
+  await getAuthorizedMembership(id, actorUserId, auth);
 
   const message = await messageRepository.findById(mid);
   if (!message || String(message.conversationId) !== String(id)) {
@@ -474,11 +702,14 @@ async function deleteMessageForEveryone(conversationId, messageId, actorUserId) 
   });
 
   const users = await resolveUsersMap([actorUserId]);
-  return toMessageDto(updated, users.get(String(actorUserId))?.displayName || '');
+  const dto = toMessageDto(updated, users.get(String(actorUserId))?.displayName || '');
+  emitConverseMessageDeleted(id, dto, await authorizedRecipients(await conversationRepository.findById(id)));
+  return dto;
 }
 
-async function getUnreadCount(actorUserId) {
-  const total = await participantRepository.sumUnreadForUser(actorUserId);
+async function getUnreadCount(actorUserId, auth = null) {
+  const conversations = await listConversations(actorUserId, auth);
+  const total = conversations.reduce((sum, row) => sum + Number(row.unreadCount || 0), 0);
   return { total };
 }
 
@@ -492,6 +723,20 @@ async function searchUsers(query, actorUserId) {
     .map(toUserSummaryDto);
 }
 
+async function listTeamMembers(actorUserId, query = {}) {
+  const page = Math.max(1, parseInt(query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 100));
+  const result = await userRepository.listUsersPage(
+    { search: query.q || '', status: 'active' },
+    { limit, skip: (page - 1) * limit, sort: { displayName: 1, _id: 1 } }
+  );
+  return {
+    items: result.items.filter((user) => String(user._id) !== String(actorUserId)).map(toUserSummaryDto),
+    page,
+    hasMore: page * limit < result.total,
+  };
+}
+
 function getOnlineUserIds() {
   return presenceService.getOnlineUserIds();
 }
@@ -500,27 +745,43 @@ function getConfig() {
   return { enabled: true, attachments: true, typing: true, groups: true };
 }
 
-async function handleTyping(conversationId, actorUserId, actorName, isTyping) {
+async function handleTyping(conversationId, actorUserId, actorName, isTyping, auth = null) {
   const id = assertObjectId(conversationId, 'conversationId');
-  await getActiveParticipantOrThrow(id, actorUserId);
+  await getAuthorizedMembership(id, actorUserId, auth);
+  const recipients = await authorizedRecipients(await conversationRepository.findById(id));
   if (isTyping) {
-    emitConverseTypingStarted(id, actorUserId, actorName);
+    emitConverseTypingStarted(id, actorUserId, actorName, recipients);
   } else {
-    emitConverseTypingStopped(id, actorUserId, actorName);
+    emitConverseTypingStopped(id, actorUserId, actorName, recipients);
   }
 }
 
-async function assertConversationParticipant(conversationId, userId) {
-  return getActiveParticipantOrThrow(conversationId, userId);
+async function handleMessageDeliveryAck(conversationId, messageId, recipientUserId, auth = null) {
+  const id = assertObjectId(conversationId, 'conversationId');
+  const mid = assertObjectId(messageId, 'messageId');
+  await getAuthorizedMembership(id, recipientUserId, auth);
+  const message = await messageRepository.findById(mid);
+  if (!message || String(message.conversationId) !== String(id)) {
+    throw new AppError('Message not found', { status: 404, code: converseErrorCodes.CONVERSE_MESSAGE_NOT_FOUND });
+  }
+  await messageRepository.pushDeliveryReceipt(mid, recipientUserId);
+  const { emitConverseDeliveryAcknowledgement } = require('../../socket/helpers/converseSocketEvents.helper');
+  emitConverseDeliveryAcknowledgement(String(message.senderId), String(id), String(mid));
+}
+
+async function assertConversationParticipant(conversationId, userId, auth = null) {
+  return getAuthorizedMembership(conversationId, userId, auth);
 }
 
 module.exports = {
   createDirect,
+  createProjectRoom,
   createGroup,
   listConversations,
   getConversation,
   listMessages,
   sendMessage,
+  toggleReaction,
   markConversationRead,
   addParticipants,
   removeParticipant,
@@ -531,8 +792,10 @@ module.exports = {
   deleteMessageForEveryone,
   getUnreadCount,
   searchUsers,
+  listTeamMembers,
   getOnlineUserIds,
   getConfig,
   handleTyping,
+  handleMessageDeliveryAck,
   assertConversationParticipant,
 };

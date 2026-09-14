@@ -96,10 +96,12 @@ function registerRoomHandlers(socket) {
     try {
       const room = await socketRoomAccessService.assertConversationRoomAccess(
         payload?.conversationId,
-        socket.v2Auth.userId
+        socket.v2Auth.userId,
+        socket.v2Auth
       );
       await socket.join(room);
       ackResult(ack, { ok: true, room });
+      socket.emit(SERVER_EVENTS.CONVERSE_CONVERSATION_JOINED, { conversationId: String(payload.conversationId) });
     } catch (err) {
       ackResult(ack, { ok: false, code: err.code || 'SOCKET_FORBIDDEN', message: err.message });
     }
@@ -110,6 +112,7 @@ function registerRoomHandlers(socket) {
       const room = getConversationRoom(payload?.conversationId);
       socket.leave(room);
       ackResult(ack, { ok: true, room });
+      socket.emit(SERVER_EVENTS.CONVERSE_CONVERSATION_LEFT, { conversationId: String(payload.conversationId) });
     } catch (err) {
       ackResult(ack, { ok: false, code: err.code || 'SOCKET_ROOM_INVALID', message: err.message });
     }
@@ -121,7 +124,7 @@ function registerRoomHandlers(socket) {
     if (!socket.v2Auth?.userId || !payload?.conversationId) return;
     try {
       const name = payload.userName || socket.v2Auth.displayName || '';
-      await handleTyping(payload.conversationId, socket.v2Auth.userId, name, true);
+      await handleTyping(payload.conversationId, socket.v2Auth.userId, name, true, socket.v2Auth);
     } catch (_err) {
       // typing is best-effort
     }
@@ -131,9 +134,28 @@ function registerRoomHandlers(socket) {
     if (!socket.v2Auth?.userId || !payload?.conversationId) return;
     try {
       const name = payload.userName || socket.v2Auth.displayName || '';
-      await handleTyping(payload.conversationId, socket.v2Auth.userId, name, false);
+      await handleTyping(payload.conversationId, socket.v2Auth.userId, name, false, socket.v2Auth);
     } catch (_err) {
       // typing is best-effort
+    }
+  });
+
+  socket.on(CLIENT_EVENTS.CONVERSE_MESSAGE_DELIVERED_ACK, async (payload, ack) => {
+    if (!socket.v2Auth?.userId || !payload?.conversationId || !payload?.messageId) {
+      ackResult(ack, { ok: false });
+      return;
+    }
+    try {
+      const { handleMessageDeliveryAck } = require('../../converse');
+      await handleMessageDeliveryAck(
+        payload.conversationId,
+        payload.messageId,
+        socket.v2Auth.userId,
+        socket.v2Auth
+      );
+      ackResult(ack, { ok: true });
+    } catch (err) {
+      ackResult(ack, { ok: false, code: err.code || 'SOCKET_ERROR', message: err.message });
     }
   });
 

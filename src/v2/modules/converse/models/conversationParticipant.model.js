@@ -8,6 +8,7 @@ const ConversationParticipantSchema = new Schema(
     userId: { type: Schema.Types.ObjectId, ref: 'PtsUser', required: true, index: true },
     role: { type: String, enum: Object.values(MEMBER_ROLES), default: MEMBER_ROLES.MEMBER },
     lastReadMessageId: { type: Schema.Types.ObjectId, default: null },
+    lastReadSequence: { type: Number, default: 0, min: 0 },
     lastReadAt: { type: Date, default: null },
     unreadCount: { type: Number, default: 0, min: 0 },
     mentionCount: { type: Number, default: 0, min: 0 },

@@ -23,6 +23,7 @@ const createDirectRules = [
 const createGroupRules = [
   body('title').isString().trim().notEmpty().withMessage('title is required'),
   body('memberIds').isArray({ min: 1 }).withMessage('memberIds must be a non-empty array'),
+  body('avatar').optional().isString().isLength({ max: 2048 }),
 ];
 
 const sendMessageRules = [
@@ -31,6 +32,8 @@ const sendMessageRules = [
   body('attachments').optional().isArray(),
   body('replyToMessageId').optional().isString(),
   body('clientTempId').optional().isString(),
+  body('mentions').optional().isArray({ max: 20 }),
+  body('mentionAll').optional().isBoolean(),
 ];
 
 const participantsRules = [
