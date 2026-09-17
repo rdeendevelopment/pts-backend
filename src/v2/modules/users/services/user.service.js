@@ -746,6 +746,101 @@ async function updateMyProfile(accountId, payload) {
   return updateUser(user._id, payload);
 }
 
+async function getMyPresence(userId) {
+  const user = await userRepository.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', { status: 404, code: userErrorCodes.USER_NOT_FOUND });
+  }
+  const presenceService = require('../../socket/services/presence.service');
+  const isOnline = presenceService.isUserOnline(String(userId));
+  return {
+    userId: String(user._id),
+    presenceMode: user.presenceMode || 'auto',
+    customStatus: user.customStatus || null,
+    isOnline,
+  };
+}
+
+async function updatePresenceMode(userId, mode) {
+  if (!['auto', 'online', 'away', 'dnd', 'invisible'].includes(mode)) {
+    throw new AppError('Invalid presence mode', { status: 400 });
+  }
+  const user = await userRepository.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', { status: 404, code: userErrorCodes.USER_NOT_FOUND });
+  }
+  user.presenceMode = mode;
+  await user.save();
+  const presenceService = require('../../socket/services/presence.service');
+  const isOnline = presenceService.isUserOnline(String(userId));
+  const { emitUserPresenceUpdated } = require('../../socket/helpers/converseSocketEvents.helper');
+  emitUserPresenceUpdated(String(userId), {
+    presenceMode: mode,
+    isOnline,
+  });
+  return { userId: String(user._id), presenceMode: mode };
+}
+
+async function updateCustomStatus(userId, payload) {
+  const { text, emoji, expiresIn } = payload;
+  if (text && text.length > 256) {
+    throw new AppError('Status text too long (max 256 characters)', { status: 400 });
+  }
+  const user = await userRepository.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', { status: 404, code: userErrorCodes.USER_NOT_FOUND });
+  }
+  let expiresAt = null;
+  if (expiresIn) {
+    const expiryMap = {
+      '30m': 30 * 60 * 1000,
+      '1h': 60 * 60 * 1000,
+      '4h': 4 * 60 * 60 * 1000,
+      'today': (() => {
+        const now = new Date();
+        const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+        return end.getTime() - now.getTime();
+      })(),
+    };
+    if (expiryMap[expiresIn]) {
+      expiresAt = new Date(Date.now() + expiryMap[expiresIn]);
+    }
+  }
+  user.customStatus = {
+    text: text || null,
+    emoji: emoji || null,
+    expiresAt,
+  };
+  await user.save();
+  const presenceService = require('../../socket/services/presence.service');
+  const isOnline = presenceService.isUserOnline(String(userId));
+  const { emitUserPresenceUpdated } = require('../../socket/helpers/converseSocketEvents.helper');
+  emitUserPresenceUpdated(String(userId), {
+    presenceMode: user.presenceMode || 'auto',
+    customStatus: user.customStatus,
+    isOnline,
+  });
+  return { userId: String(user._id), customStatus: user.customStatus };
+}
+
+async function clearCustomStatus(userId) {
+  const user = await userRepository.findById(userId);
+  if (!user) {
+    throw new AppError('User not found', { status: 404, code: userErrorCodes.USER_NOT_FOUND });
+  }
+  user.customStatus = { text: null, emoji: null, expiresAt: null };
+  await user.save();
+  const presenceService = require('../../socket/services/presence.service');
+  const isOnline = presenceService.isUserOnline(String(userId));
+  const { emitUserPresenceUpdated } = require('../../socket/helpers/converseSocketEvents.helper');
+  emitUserPresenceUpdated(String(userId), {
+    presenceMode: user.presenceMode || 'auto',
+    customStatus: null,
+    isOnline,
+  });
+  return { userId: String(user._id) };
+}
+
 module.exports = {
   listUsers,
   getUserById,
@@ -760,4 +855,8 @@ module.exports = {
   resetUserPassword,
   changeMyPassword,
   assertValidStatus,
+  getMyPresence,
+  updatePresenceMode,
+  updateCustomStatus,
+  clearCustomStatus,
 };

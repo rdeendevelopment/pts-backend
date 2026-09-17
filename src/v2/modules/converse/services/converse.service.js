@@ -31,6 +31,7 @@ const conversationRepository = require('../repositories/conversation.repository'
 const participantRepository = require('../repositories/participant.repository');
 const messageRepository = require('../repositories/message.repository');
 const { toConversationDto, toMessageDto, toUserSummaryDto } = require('../dto/converse.dto');
+const converseNotificationService = require('./converseNotification.service');
 
 async function resolveUsersMap(userIds = []) {
   const unique = [...new Set(userIds.map((id) => String(id)).filter(Boolean))];
@@ -317,7 +318,33 @@ async function sendMessage(actorUserId, actorName, conversationId, payload = {},
   }
 
   const text = payload.text ? sanitizeText(payload.text) : '';
-  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+  const attachments = (Array.isArray(payload.attachments) ? payload.attachments : []).map((attachment) => {
+    const storageKey = String(attachment.storageKey || attachment.url || attachment.fileUrl || '');
+    if (!storageKey.startsWith('/uploads/')) {
+      throw new AppError('Invalid attachment storage reference', {
+        status: 422, code: converseErrorCodes.CONVERSE_INVALID_REQUEST,
+      });
+    }
+    const mimeType = String(attachment.mimeType || attachment.fileType || '');
+    const inferredCategory = mimeType.startsWith('image/') ? 'image'
+      : mimeType.startsWith('audio/') ? 'audio'
+      : mimeType === 'application/pdf' ? 'pdf'
+      : mimeType.includes('spreadsheet') || mimeType.includes('excel') ? 'spreadsheet'
+      : mimeType.includes('word') ? 'document' : 'other';
+    const category = attachment.category === 'voice-note' ? 'voice' : String(attachment.category || inferredCategory);
+    return {
+      fileName: String(attachment.fileName || 'Attachment').slice(0, 255),
+      fileUrl: storageKey,
+      url: storageKey,
+      storageKey,
+      fileType: mimeType || null,
+      mimeType: mimeType || null,
+      fileSize: Number(attachment.fileSize || attachment.size || 0) || null,
+      size: Number(attachment.size || attachment.fileSize || 0) || null,
+      category,
+      duration: Number(attachment.duration || 0) || null,
+    };
+  });
   if (!text && !attachments.length) {
     throw new AppError('Message must contain text or attachments', {
       status: 422,
@@ -390,6 +417,7 @@ async function sendMessage(actorUserId, actorName, conversationId, payload = {},
     mentions,
     mentionAll,
     readBy: [{ userId: actorUserId, readAt: new Date() }],
+    isForwarded: payload.isForwarded === true,
   });
 
   const lastMessage = {
@@ -398,6 +426,8 @@ async function sendMessage(actorUserId, actorName, conversationId, payload = {},
     type: msgType,
     senderId: actorUserId,
     senderName: actorName,
+    attachmentCategory: attachments[0]?.category || null,
+    attachmentFileName: attachments[0]?.fileName || '',
     createdAt: message.createdAt,
   };
 
@@ -414,7 +444,32 @@ async function sendMessage(actorUserId, actorName, conversationId, payload = {},
   emitConverseMessageDelivered(id, dto, participants.filter((row) =>
     allowedParticipants.some((allowed) => String(allowed.userId) === String(row.userId))
   ));
+  await converseNotificationService.notifyForMessage({
+    conversation,
+    message,
+    actorUserId,
+    actorName,
+    participants: allowedParticipants,
+  });
   return dto;
+}
+
+async function forwardMessage(actorUserId, actorName, sourceConversationId, messageId, destinationConversationId, auth = null) {
+  const sourceId = assertObjectId(sourceConversationId, 'conversationId');
+  const mid = assertObjectId(messageId, 'messageId');
+  const destinationId = assertObjectId(destinationConversationId, 'destinationConversationId');
+  await getAuthorizedMembership(sourceId, actorUserId, auth);
+  await getAuthorizedMembership(destinationId, actorUserId, auth);
+  const original = await messageRepository.findById(mid);
+  if (!original || String(original.conversationId) !== String(sourceId) || original.isDeletedForEveryone) {
+    throw new AppError('Message not found', { status: 404, code: converseErrorCodes.CONVERSE_MESSAGE_NOT_FOUND });
+  }
+  const text = String(original.text || '');
+  const attachments = (original.attachments || []).map((item) => item.toObject ? item.toObject() : { ...item });
+  if (!text && !attachments.length) {
+    throw new AppError('Message cannot be forwarded', { status: 422, code: converseErrorCodes.CONVERSE_INVALID_REQUEST });
+  }
+  return sendMessage(actorUserId, actorName, destinationId, { text, attachments, isForwarded: true }, auth);
 }
 
 async function toggleReaction(conversationId, messageId, actorUserId, emoji, auth = null) {
@@ -773,6 +828,226 @@ async function assertConversationParticipant(conversationId, userId, auth = null
   return getAuthorizedMembership(conversationId, userId, auth);
 }
 
+async function downloadAttachment(conversationId, messageId, attachmentIndex, userId, auth = null, res) {
+  const path = require('path');
+  const fs = require('fs');
+  const uploadDirectory = path.resolve('src/storage/uploads');
+
+  const cid = assertObjectId(conversationId, 'conversationId');
+  const mid = assertObjectId(messageId, 'messageId');
+
+  await getAuthorizedMembership(cid, userId, auth);
+
+  const message = await messageRepository.findById(mid);
+  if (!message || String(message.conversationId) !== String(cid)) {
+    throw new AppError('Message not found', { status: 404, code: converseErrorCodes.CONVERSE_MESSAGE_NOT_FOUND });
+  }
+
+  const attachments = message.attachments || [];
+  if (attachmentIndex < 0 || attachmentIndex >= attachments.length) {
+    throw new AppError('Attachment not found', { status: 404 });
+  }
+
+  const attachment = attachments[attachmentIndex];
+  const storagePath = attachment.storageKey || attachment.url || '';
+  if (!storagePath) {
+    throw new AppError('Attachment has no storage path', { status: 404 });
+  }
+
+  const filename = storagePath.startsWith('/uploads/') ? storagePath.slice(8) : storagePath.split('/').pop();
+  const safeFileName = path.basename(filename);
+  const fullPath = path.join(uploadDirectory, safeFileName);
+
+  if (!fullPath.startsWith(uploadDirectory)) {
+    throw new AppError('Invalid file path', { status: 400 });
+  }
+
+  if (!fs.existsSync(fullPath)) {
+    throw new AppError('File not found', { status: 404 });
+  }
+
+  const extension = path.extname(safeFileName).slice(1).toLowerCase();
+  const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'doc', 'docx', 'txt', 'xlsx', 'mp4', 'webm', 'ogv', 'mov', 'm4a', 'wav', 'ogg', 'flac'];
+
+  if (!allowedExtensions.includes(extension)) {
+    throw new AppError('File type not allowed for download', { status: 403 });
+  }
+
+  const stat = fs.statSync(fullPath);
+  const mimeType = attachment.mimeType || 'application/octet-stream';
+  res.setHeader('Content-Type', mimeType);
+  res.setHeader('Content-Length', stat.size);
+  res.setHeader('Content-Disposition', `inline; filename="${safeFileName}"`);
+
+  const fileStream = fs.createReadStream(fullPath);
+  fileStream.pipe(res);
+
+  return new Promise((resolve, reject) => {
+    fileStream.on('end', () => resolve());
+    fileStream.on('error', reject);
+    res.on('error', reject);
+  });
+}
+
+async function saveMessage(messageId, conversationId, userId, auth = null) {
+  const mid = assertObjectId(messageId, 'messageId');
+  const cid = assertObjectId(conversationId, 'conversationId');
+  await getAuthorizedMembership(cid, userId, auth);
+
+  const message = await messageRepository.findById(mid);
+  if (!message || String(message.conversationId) !== String(cid)) {
+    throw new AppError('Message not found', { status: 404 });
+  }
+
+  const SavedMessage = require('../models/saved-message.model').getSavedMessageModel();
+  const saved = await SavedMessage.findOneAndUpdate(
+    { userId, messageId: mid },
+    { userId, messageId: mid, conversationId: cid },
+    { upsert: true, new: true }
+  );
+  return { saved: true, _id: String(saved._id) };
+}
+
+async function unsaveMessage(messageId, userId) {
+  const mid = assertObjectId(messageId, 'messageId');
+  const SavedMessage = require('../models/saved-message.model').getSavedMessageModel();
+  await SavedMessage.deleteOne({ userId, messageId: mid });
+  return { unsaved: true };
+}
+
+async function pinMessage(messageId, conversationId, userId, auth = null) {
+  const mid = assertObjectId(messageId, 'messageId');
+  const cid = assertObjectId(conversationId, 'conversationId');
+  await getAuthorizedMembership(cid, userId, auth);
+
+  const message = await messageRepository.findById(mid);
+  if (!message || String(message.conversationId) !== String(cid)) {
+    throw new AppError('Message not found', { status: 404 });
+  }
+
+  const PinnedMessage = require('../models/pinned-message.model').getPinnedMessageModel();
+  const pinned = await PinnedMessage.findOneAndUpdate(
+    { conversationId: cid, messageId: mid },
+    { conversationId: cid, messageId: mid, pinnedBy: userId },
+    { upsert: true, new: true }
+  );
+  return { pinned: true, _id: String(pinned._id) };
+}
+
+async function unpinMessage(messageId, conversationId, userId, auth = null) {
+  const mid = assertObjectId(messageId, 'messageId');
+  const cid = assertObjectId(conversationId, 'conversationId');
+  await getAuthorizedMembership(cid, userId, auth);
+
+  const PinnedMessage = require('../models/pinned-message.model').getPinnedMessageModel();
+  await PinnedMessage.deleteOne({ conversationId: cid, messageId: mid });
+  return { unpinned: true };
+}
+
+async function setNotificationPreference(conversationId, userId, preference, auth = null) {
+  const cid = assertObjectId(conversationId, 'conversationId');
+  if (!['all', 'mentions_replies', 'muted'].includes(preference)) {
+    throw new AppError('Invalid preference', { status: 400 });
+  }
+  await getAuthorizedMembership(cid, userId, auth);
+
+  const NotificationPreference = require('../models/notification-preference.model').getNotificationPreferenceModel();
+  const pref = await NotificationPreference.findOneAndUpdate(
+    { userId, conversationId: cid },
+    { userId, conversationId: cid, preference },
+    { upsert: true, new: true }
+  );
+  return { preference: pref.preference };
+}
+
+async function search(query, userId, limit, auth = null) {
+  if (!query || query.trim().length < 2) {
+    return { people: [], conversations: [], messages: [] };
+  }
+
+  const q = query.trim().toLowerCase();
+  const results = { people: [], conversations: [], messages: [] };
+  const userRepository = require('../../users/repositories/user.repository');
+
+  // Search people
+  try {
+    const people = await userRepository.getUserModel()
+      .find({
+        $and: [
+          { isDeleted: false },
+          { _id: { $ne: userId } },
+          { $or: [
+            { displayName: { $regex: q, $options: 'i' } },
+            { email: { $regex: q, $options: 'i' } },
+          ] },
+        ],
+      })
+      .select('_id displayName email role imageUrl')
+      .limit(limit)
+      .lean();
+
+    results.people = people.map((u) => ({
+      userId: String(u._id),
+      displayName: u.displayName,
+      email: u.email,
+      role: u.role,
+    }));
+  } catch (_e) {
+    // Silently skip on error
+  }
+
+  // Search conversations - only accessible ones
+  try {
+    const accessibleConversations = await participantRepository.listActiveByUserId(userId);
+    const conversationIds = accessibleConversations.map((c) => c.conversationId);
+
+    const conversations = await conversationRepository.model.find({
+      _id: { $in: conversationIds },
+      title: { $regex: q, $options: 'i' },
+    })
+      .select('_id title type')
+      .limit(limit)
+      .lean();
+
+    results.conversations = conversations.map((c) => ({
+      conversationId: String(c._id),
+      title: c.title,
+      type: c.type,
+    }));
+  } catch (_e) {
+    // Silently skip on error
+  }
+
+  // Search messages - only in accessible conversations
+  try {
+    const accessibleConversations = await participantRepository.listActiveByUserId(userId);
+    const conversationIds = accessibleConversations.map((c) => c.conversationId);
+
+    const messages = await messageRepository.model.find({
+      conversationId: { $in: conversationIds },
+      isDeletedForEveryone: { $ne: true },
+      text: { $regex: q, $options: 'i' },
+    })
+      .select('_id conversationId text senderId senderName createdAt')
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    results.messages = messages.map((m) => ({
+      messageId: String(m._id),
+      conversationId: String(m.conversationId),
+      text: m.text?.substring(0, 80),
+      senderId: String(m.senderId),
+      senderName: m.senderName,
+      createdAt: m.createdAt,
+    }));
+  } catch (_e) {
+    // Silently skip on error
+  }
+
+  return results;
+}
+
 module.exports = {
   createDirect,
   createProjectRoom,
@@ -798,4 +1073,12 @@ module.exports = {
   handleTyping,
   handleMessageDeliveryAck,
   assertConversationParticipant,
+  downloadAttachment,
+  search,
+  saveMessage,
+  unsaveMessage,
+  pinMessage,
+  unpinMessage,
+  setNotificationPreference,
+  forwardMessage,
 };

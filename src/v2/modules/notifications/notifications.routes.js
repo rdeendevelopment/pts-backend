@@ -14,7 +14,7 @@ const listQueryRules = [
   query('limit').optional().isInt({ min: 1, max: 100 }).toInt(),
   query('readState').optional().isIn(['all', 'read', 'unread']),
   query('category').optional().isString().isLength({ max: 40 }),
-  query('module').optional().isIn(['task', 'tasks', 'timesheets', 'projects', 'activity']),
+  query('module').optional().isIn(['task', 'tasks', 'timesheets', 'projects', 'activity', 'converse']),
   query('projectId').optional().isMongoId(),
   query('search').optional().isString().isLength({ max: 120 }),
   query('dateFrom').optional().isISO8601(),

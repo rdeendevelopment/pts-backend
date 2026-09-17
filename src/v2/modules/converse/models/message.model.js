@@ -6,8 +6,14 @@ const AttachmentSchema = new Schema(
   {
     fileName: { type: String, default: '' },
     fileUrl: { type: String, default: '' },
+    url: { type: String, default: '' },
+    storageKey: { type: String, default: '' },
     fileType: { type: String, default: null },
+    mimeType: { type: String, default: null },
     fileSize: { type: Number, default: null },
+    size: { type: Number, default: null },
+    category: { type: String, enum: ['image', 'voice', 'audio', 'pdf', 'document', 'spreadsheet', 'archive', 'other'], default: 'other' },
+    duration: { type: Number, default: null },
   },
   { _id: false }
 );
@@ -64,6 +70,7 @@ const MessageSchema = new Schema(
     isEdited: { type: Boolean, default: false },
     editedAt: { type: Date, default: null },
     isDeletedForEveryone: { type: Boolean, default: false, index: true },
+    isForwarded: { type: Boolean, default: false },
     deletedAt: { type: Date, default: null },
     deletedBy: { type: Schema.Types.ObjectId, default: null },
     deletedForUsers: { type: [Schema.Types.ObjectId], default: [] },

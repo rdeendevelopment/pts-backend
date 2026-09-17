@@ -9,6 +9,8 @@ const LastMessageSchema = new Schema(
     type: { type: String, default: 'text' },
     senderId: { type: Schema.Types.ObjectId, default: null },
     senderName: { type: String, default: '' },
+    attachmentCategory: { type: String, default: null },
+    attachmentFileName: { type: String, default: '' },
     createdAt: { type: Date, default: null },
   },
   { _id: false }

@@ -10,6 +10,7 @@ const accounts = require('../../auth/repositories/account.repository');
 const rbac = require('../../rbac/services/rbacAccess.service');
 const projects = require('../../projects');
 const roomAccess = require('../../socket/services/socketRoomAccess.service');
+const converseNotifications = require('../services/converseNotification.service');
 
 const A = '507f1f77bcf86cd799439011';
 const B = '507f1f77bcf86cd799439012';
@@ -33,6 +34,7 @@ beforeEach(() => {
     conversations: new Map(), participants: new Map(), messages: [],
     nextConversation: 32, assignments: new Set([A, B]),
   };
+  stub(converseNotifications, 'notifyForMessage', async () => []);
   const userRows = new Map([A, B, C].map((id, index) => [id, {
     _id: id, accountId: id, status: 'active', displayName: `Member ${index + 1}`, email: `member${index + 1}@example.test`,
   }]));

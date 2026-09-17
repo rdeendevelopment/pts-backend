@@ -23,6 +23,8 @@ function toLastMessageDto(lastMessage) {
     type: lastMessage.type || 'text',
     senderId: lastMessage.senderId ? String(lastMessage.senderId) : undefined,
     senderName: lastMessage.senderName || '',
+    attachmentCategory: lastMessage.attachmentCategory || null,
+    attachmentFileName: lastMessage.attachmentFileName || '',
     createdAt: lastMessage.createdAt || null,
   };
 }
@@ -79,6 +81,7 @@ function toMessageDto(message, senderName = '') {
     readBy: doc.readBy || [],
     isEdited: Boolean(doc.isEdited),
     isDeletedForEveryone: Boolean(doc.isDeletedForEveryone),
+    isForwarded: Boolean(doc.isForwarded),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

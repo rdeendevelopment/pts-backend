@@ -58,5 +58,13 @@ router.post('/conversations/:conversationId/messages', sendMessageRules, validat
 router.patch('/conversations/:conversationId/messages/:messageId', messageIdRules, validateRequest, controller.editMessage);
 router.delete('/conversations/:conversationId/messages/:messageId', messageIdRules, validateRequest, controller.deleteMessage);
 router.post('/conversations/:conversationId/messages/:messageId/reactions', messageIdRules, validateRequest, controller.toggleReaction);
+router.post('/conversations/:conversationId/messages/:messageId/forward', messageIdRules, validateRequest, controller.forwardMessage);
+router.get('/conversations/:conversationId/messages/:messageId/attachments/:attachmentIndex/download', asyncHandler(controller.downloadAttachment));
+router.post('/conversations/:conversationId/messages/:messageId/save', messageIdRules, validateRequest, asyncHandler(controller.saveMessage));
+router.delete('/conversations/:conversationId/messages/:messageId/save', messageIdRules, validateRequest, asyncHandler(controller.unsaveMessage));
+router.post('/conversations/:conversationId/messages/:messageId/pin', messageIdRules, validateRequest, asyncHandler(controller.pinMessage));
+router.delete('/conversations/:conversationId/messages/:messageId/pin', messageIdRules, validateRequest, asyncHandler(controller.unpinMessage));
+router.patch('/conversations/:conversationId/notification-preference', conversationIdRules, validateRequest, asyncHandler(controller.setNotificationPreference));
+router.get('/search', asyncHandler(controller.search));
 
 module.exports = router;

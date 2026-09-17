@@ -134,6 +134,21 @@ function emitConverseMessageDelivered(conversationId, message, participants = []
   });
 }
 
+function emitUserPresenceUpdated(userId, presence) {
+  emitBestEffort(() => {
+    socketService().emitToUser(String(userId), SERVER_EVENTS.PRESENCE_UPDATED, presence);
+  });
+  const globalSocket = socketService().getSocketServer();
+  if (globalSocket) {
+    emitBestEffort(() => {
+      globalSocket.emit(SERVER_EVENTS.PRESENCE_UPDATED, {
+        userId: String(userId),
+        ...presence,
+      });
+    });
+  }
+}
+
 module.exports = {
   emitConverseMessageCreated,
   emitConverseMessageUpdated,
@@ -148,4 +163,5 @@ module.exports = {
   emitConverseMessageDelivered,
   emitConverseDeliveryAcknowledgement,
   evictConverseUserFromRoom,
+  emitUserPresenceUpdated,
 };

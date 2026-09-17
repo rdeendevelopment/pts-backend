@@ -49,6 +49,16 @@ const UserSchema = new Schema(
     joiningDate: { type: Date, default: null },
     timezone: { type: String, default: DEFAULT_TIMEZONE },
     notes: { type: String, default: null },
+    presenceMode: {
+      type: String,
+      enum: ['auto', 'online', 'away', 'dnd', 'invisible'],
+      default: 'auto',
+    },
+    customStatus: {
+      text: { type: String, default: null, maxlength: 256 },
+      emoji: { type: String, default: null, maxlength: 2 },
+      expiresAt: { type: Date, default: null },
+    },
     schemaVersion: { type: Number, default: 1 },
     isDeleted: { type: Boolean, default: false, index: true },
     deletedAt: { type: Date, default: null },

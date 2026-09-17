@@ -176,6 +176,82 @@ async function getConfig(req, res) {
   return sendSuccess(res, converseService.getConfig());
 }
 
+async function downloadAttachment(req, res) {
+  const conversationId = assertObjectId(req.params.conversationId, 'conversationId');
+  const messageId = assertObjectId(req.params.messageId, 'messageId');
+  const attachmentIndex = parseInt(req.params.attachmentIndex, 10);
+
+  if (Number.isNaN(attachmentIndex) || attachmentIndex < 0) {
+    return res.status(400).json({ success: false, message: 'Invalid attachment index.' });
+  }
+
+  return converseService.downloadAttachment(
+    conversationId,
+    messageId,
+    attachmentIndex,
+    actor(req).userId,
+    req.v2Auth,
+    res
+  );
+}
+
+async function search(req, res) {
+  const query = req.query.q || '';
+  const limit = Math.min(Number(req.query.limit || 20), 100);
+  const data = await converseService.search(query, actor(req).userId, limit, req.v2Auth);
+  return sendSuccess(res, data);
+}
+
+async function saveMessage(req, res) {
+  const conversationId = assertObjectId(req.params.conversationId, 'conversationId');
+  const messageId = assertObjectId(req.params.messageId, 'messageId');
+  const data = await converseService.saveMessage(messageId, conversationId, actor(req).userId, req.v2Auth);
+  return sendSuccess(res, data, { status: 201 });
+}
+
+async function unsaveMessage(req, res) {
+  const messageId = assertObjectId(req.params.messageId, 'messageId');
+  const data = await converseService.unsaveMessage(messageId, actor(req).userId);
+  return sendSuccess(res, data);
+}
+
+async function pinMessage(req, res) {
+  const conversationId = assertObjectId(req.params.conversationId, 'conversationId');
+  const messageId = assertObjectId(req.params.messageId, 'messageId');
+  const data = await converseService.pinMessage(messageId, conversationId, actor(req).userId, req.v2Auth);
+  return sendSuccess(res, data, { status: 201 });
+}
+
+async function unpinMessage(req, res) {
+  const conversationId = assertObjectId(req.params.conversationId, 'conversationId');
+  const messageId = assertObjectId(req.params.messageId, 'messageId');
+  const data = await converseService.unpinMessage(messageId, conversationId, actor(req).userId, req.v2Auth);
+  return sendSuccess(res, data);
+}
+
+async function setNotificationPreference(req, res) {
+  const conversationId = assertObjectId(req.params.conversationId, 'conversationId');
+  const { preference } = req.body;
+  const data = await converseService.setNotificationPreference(conversationId, actor(req).userId, preference, req.v2Auth);
+  return sendSuccess(res, data);
+}
+
+async function forwardMessage(req, res) {
+  const conversationId = assertObjectId(req.params.conversationId, 'conversationId');
+  const messageId = assertObjectId(req.params.messageId, 'messageId');
+  const destinationConversationId = assertObjectId(req.body.destinationConversationId, 'destinationConversationId');
+  const currentActor = actor(req);
+  const data = await converseService.forwardMessage(
+    currentActor.userId,
+    currentActor.displayName || currentActor.name || '',
+    conversationId,
+    messageId,
+    destinationConversationId,
+    req.v2Auth
+  );
+  return sendSuccess(res, data, { status: 201 });
+}
+
 module.exports = {
   listConversations: asyncHandler(listConversations),
   createDirect: asyncHandler(createDirect),
@@ -197,4 +273,12 @@ module.exports = {
   listTeamMembers: asyncHandler(listTeamMembers),
   getOnlineUsers: asyncHandler(getOnlineUsers),
   getConfig: asyncHandler(getConfig),
+  downloadAttachment: asyncHandler(downloadAttachment),
+  search: asyncHandler(search),
+  saveMessage: asyncHandler(saveMessage),
+  unsaveMessage: asyncHandler(unsaveMessage),
+  pinMessage: asyncHandler(pinMessage),
+  unpinMessage: asyncHandler(unpinMessage),
+  setNotificationPreference: asyncHandler(setNotificationPreference),
+  forwardMessage: asyncHandler(forwardMessage),
 };

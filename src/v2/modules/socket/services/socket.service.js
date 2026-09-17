@@ -76,6 +76,17 @@ function emitToConversation(conversationId, eventName, payload) {
   emitToRoom(getConversationRoom(conversationId), eventName, payload);
 }
 
+async function isUserInConversation(userId, conversationId) {
+  if (!isSocketReady()) return false;
+  try {
+    const sockets = await socketServerService.getNamespace().in(getUserRoom(userId)).fetchSockets();
+    const room = getConversationRoom(conversationId);
+    return sockets.some((socket) => socket.rooms.has(room));
+  } catch (_) {
+    return false;
+  }
+}
+
 function emitToDiscussFlowTopic(topicId, eventName, payload) {
   emitToRoom(getDiscussFlowTopicRoom(topicId), eventName, payload);
 }
@@ -101,6 +112,7 @@ module.exports = {
   emitToProject,
   emitToTask,
   emitToConversation,
+  isUserInConversation,
   emitToDiscussFlowTopic,
   broadcast,
   shutdownSocket,

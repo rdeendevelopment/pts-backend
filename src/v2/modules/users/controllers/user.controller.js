@@ -59,6 +59,31 @@ async function changeMyPassword(req, res) {
   return sendSuccess(res, data);
 }
 
+async function resolveCurrentUserId(req) {
+  const user = await userService.ensureUserProfileForAccount(req.v2Auth.accountId);
+  return String(user._id);
+}
+
+async function getMyPresence(req, res) {
+  const data = await userService.getMyPresence(await resolveCurrentUserId(req));
+  return sendSuccess(res, data);
+}
+
+async function updatePresenceMode(req, res) {
+  const data = await userService.updatePresenceMode(await resolveCurrentUserId(req), req.body.presenceMode);
+  return sendSuccess(res, data);
+}
+
+async function updateCustomStatus(req, res) {
+  const data = await userService.updateCustomStatus(await resolveCurrentUserId(req), req.body);
+  return sendSuccess(res, data);
+}
+
+async function clearCustomStatus(req, res) {
+  const data = await userService.clearCustomStatus(await resolveCurrentUserId(req));
+  return sendSuccess(res, data);
+}
+
 module.exports = {
   listUsers: asyncHandler(listUsers),
   getUserById: asyncHandler(getUserById),
@@ -70,4 +95,9 @@ module.exports = {
   updateUserStatus: asyncHandler(updateUserStatus),
   deleteUser: asyncHandler(deleteUser),
   resetUserPassword: asyncHandler(resetUserPassword),
+  getMyPresence: asyncHandler(getMyPresence),
+  updatePresenceMode: asyncHandler(updatePresenceMode),
+  updateCustomStatus: asyncHandler(updateCustomStatus),
+  clearCustomStatus: asyncHandler(clearCustomStatus),
+  resolveCurrentUserId,
 };

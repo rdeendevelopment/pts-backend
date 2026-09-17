@@ -25,6 +25,10 @@ router.use(authenticate);
 router.get('/me/profile', controller.getMyProfile);
 router.patch('/me/profile', profileUpdateRules, validateRequest, controller.updateMyProfile);
 router.patch('/me/password', changePasswordRules, validateRequest, controller.changeMyPassword);
+router.get('/me/presence', controller.getMyPresence);
+router.patch('/me/presence-mode', controller.updatePresenceMode);
+router.patch('/me/custom-status', controller.updateCustomStatus);
+router.delete('/me/custom-status', controller.clearCustomStatus);
 
 router.get('/', canViewUsers, listRules, validateRequest, controller.listUsers);
 router.get('/:id', canViewUsers, idParamRules, validateRequest, (req, res, next) => {

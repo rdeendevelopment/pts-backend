@@ -16,6 +16,9 @@ const definitions = [
   ['projects','user_assigned','User assigned to project',true,'normal'], ['projects','user_removed','User removed from project',true,'normal'],
   ['projects','role_changed','Project role changed',true,'normal'], ['projects','status_changed','Project status changed',true,'normal'],
   ['projects','completed','Project completed',true,'normal'],
+  ['converse','direct_message','Direct message',true,'normal'],
+  ['converse','mentioned','Converse mention',true,'normal'],
+  ['converse','replied','Converse reply',true,'normal'],
 ];
 const EVENTS = definitions.map(([module,event,label,defaultEnabled,priority,scheduled=false]) => ({
   key: `${module}.${event}`, module, event, label,
@@ -34,6 +37,8 @@ const TYPE_TO_KEY = {
   activity_week_submission_reminder:'timesheets.submission_reminder', activity_clock_auto_stopped:'timesheets.clock_auto_stopped', activity_week_submitted:'timesheets.submitted', activity_week_approved:'timesheets.approved', activity_week_rejected:'timesheets.rejected', activity_week_unsubmitted:'timesheets.withdrawn',
   project_user_assigned:'projects.user_assigned', project_user_removed:'projects.user_removed', project_role_changed:'projects.role_changed',
   project_status_changed:'projects.status_changed', project_completed:'projects.completed',
+  converse_direct_message:'converse.direct_message', converse_mentioned:'converse.mentioned',
+  converse_replied:'converse.replied',
 };
 function resolveEvent(type, moduleKey = null, eventKey = null) {
   const key = moduleKey && eventKey ? `${moduleKey}.${eventKey}` : TYPE_TO_KEY[type];
