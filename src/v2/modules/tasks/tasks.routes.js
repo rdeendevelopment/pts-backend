@@ -102,6 +102,7 @@ router.post('/projects/:projectId/tasks', canWorkOnTasks, createTaskRules, valid
 
 router.get('/inbox', canViewTasks, rejectClientPortalUser, aggregateQueryRules, validateRequest, controller.getInbox);
 router.get('/inbox-overview', canViewTasks, rejectClientPortalUser, notificationQueryRules, validateRequest, controller.getInboxOverview);
+router.get('/my-tasks/dashboard', canViewTasks, rejectClientPortalUser, aggregateQueryRules, validateRequest, controller.getMyDashboardTasks);
 router.get('/my-tasks/summary', canViewTasks, rejectClientPortalUser, aggregateQueryRules, validateRequest, controller.getMyTasksSummary);
 router.get('/my-tasks', canViewTasks, rejectClientPortalUser, aggregateQueryRules, validateRequest, controller.getMyTasks);
 router.get('/my-work', canViewTasks, rejectClientPortalUser, aggregateQueryRules, validateRequest, controller.getMyWork);

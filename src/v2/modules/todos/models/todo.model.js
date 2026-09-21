@@ -1,0 +1,34 @@
+const { Schema } = require('mongoose');
+const { getV2Model } = require('../../../database/connection');
+
+const TodoSchema = new Schema({
+  title: { type: String, required: true, trim: true, maxlength: 300 },
+  notes: { type: String, default: null, trim: true, maxlength: 5000 },
+  status: { type: String, enum: ['pending', 'completed'], default: 'pending', index: true },
+  priority: { type: String, enum: ['high', 'medium', 'low'], default: 'medium', index: true },
+  priorityRank: { type: Number, enum: [1, 2, 3], default: 2 },
+  todoDate: { type: String, required: true, index: true },
+  deadline: { type: Date, default: null, index: true },
+  hasDeadline: { type: Boolean, default: false },
+  reminderAt: { type: Date, default: null },
+  projectId: { type: Schema.Types.ObjectId, ref: 'PtsProject', default: null, index: true },
+  projectName: { type: String, default: '', trim: true },
+  linkedTaskId: { type: Schema.Types.ObjectId, ref: 'PtsTask', default: null },
+  createdBy: { type: Schema.Types.ObjectId, ref: 'PtsAccount', required: true, index: true },
+  completedBy: { type: Schema.Types.ObjectId, ref: 'PtsAccount', default: null },
+  completedAt: { type: Date, default: null },
+  isDeleted: { type: Boolean, default: false, index: true },
+  deletedAt: { type: Date, default: null },
+}, { collection: 'pts_todos', timestamps: true });
+
+TodoSchema.index({ createdBy: 1, todoDate: 1, status: 1 });
+TodoSchema.index({ projectId: 1, todoDate: 1 });
+TodoSchema.index({ isDeleted: 1, createdBy: 1, todoDate: 1 });
+
+async function ensureTodoIndexes() {
+  const model = getV2Model('PtsTodo', TodoSchema);
+  await model.createIndexes();
+  return model;
+}
+
+module.exports = { TodoSchema, ensureTodoIndexes, getTodoModel: () => getV2Model('PtsTodo', TodoSchema) };

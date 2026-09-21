@@ -95,10 +95,21 @@ async function getCapConsumedMinutes(assignment, entryDate, excludeEntryId = nul
   return periodTotals.totalMinutes;
 }
 
-async function getPendingDraftMinutes(assignmentId, timeWeekId, excludeEntryId = null) {
-  const totals = await timeEntryRepository.sumMinutes({
-    assignmentId,
-    timeWeekId,
+async function getPendingDraftMinutes(assignment, entryDate, excludeEntryId = null) {
+  const capPeriod = assignment.allocation?.capPeriod || 'project';
+  const bounds = getCapPeriodBounds(capPeriod, entryDate);
+  const entryDateFrom = bounds?.dayStart || bounds?.weekStartDate || bounds?.monthStart || null;
+  const entryDateTo = bounds?.dayEnd || bounds?.weekEndDate || bounds?.monthEnd || null;
+
+  // Draft time reserves assignment capacity immediately. Scope it to the cap
+  // period rather than the currently opened week so another draft week cannot
+  // bypass a project/day/week/month allocation.
+  const totals = await timeEntryRepository.sumMinutesForCap({
+    assignmentId: assignment._id,
+    userId: assignment.userId,
+    projectId: assignment.projectId,
+    entryDateFrom,
+    entryDateTo,
     statuses: ['draft'],
     excludeEntryId,
   });
@@ -118,6 +129,7 @@ async function validateTimeEntry({
   excludeEntryId = null,
   throwOnError = true,
   req = null,
+  includeProjectStats = false,
 }) {
   const result = {
     canLog: true,
@@ -238,24 +250,17 @@ async function validateTimeEntry({
     const capPeriod = assignment.allocation?.capPeriod || 'project';
 
     const consumedInPeriod = await getCapConsumedMinutes(assignment, entryDate, excludeEntryId);
-    const pendingDraftMinutes = timeWeek
-      ? await getPendingDraftMinutes(assignment._id, timeWeek._id, excludeEntryId)
-      : 0;
+    const pendingDraftMinutes = await getPendingDraftMinutes(assignment, entryDate, excludeEntryId);
 
     const capCheck = calculateCapRemainingMinutes({
       allocatedMinutes: assignment.allocation?.allocatedMinutes,
-      consumedInPeriod: capPeriod === 'project'
-        ? consumedInPeriod + pendingDraftMinutes
-        : consumedInPeriod,
-      pendingDraftMinutes: capPeriod === 'project' ? 0 : pendingDraftMinutes,
+      consumedInPeriod,
+      pendingDraftMinutes,
       requestedMinutes,
       allowExceed: allowAssignmentExceed,
     });
 
-    result.userRemainingMinutes = Math.max(
-      0,
-      Number(assignment.allocation?.allocatedMinutes || 0) - capCheck.consumed - pendingDraftMinutes
-    );
+    result.userRemainingMinutes = capCheck.remaining;
 
     if (!capCheck.allowed) {
       throw new AppError('User assignment cap exceeded', {
@@ -294,9 +299,11 @@ async function validateTimeEntry({
       }
     }
 
-    const stats = await projectsModule.getProjectStats(projectId).catch(() => null);
-    if (stats) {
-      result.projectRemainingMinutes = stats.totalRemainingMinutes;
+    if (includeProjectStats) {
+      const stats = await projectsModule.getProjectStats(projectId).catch(() => null);
+      if (stats) {
+        result.projectRemainingMinutes = stats.totalRemainingMinutes;
+      }
     }
 
     return result;

@@ -29,8 +29,10 @@ async function createEntry(req, res) {
 async function updateEntry(req, res) {
   const entryId = assertObjectId(req.params.id, 'id');
   const body = { ...req.body };
+  if (body.projectId) body.projectId = assertObjectId(body.projectId, 'projectId');
   if (body.workCategoryId) body.workCategoryId = assertObjectId(body.workCategoryId, 'workCategoryId');
   if (body.budgetId) body.budgetId = assertObjectId(body.budgetId, 'budgetId');
+  if (body.taskId) body.taskId = assertObjectId(body.taskId, 'taskId');
 
   const data = await timeEntryService.updateEntry(entryId, body, req.v2Auth.accountId, req);
   return sendSuccess(res, data);

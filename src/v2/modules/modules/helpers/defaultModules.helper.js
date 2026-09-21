@@ -148,7 +148,7 @@ const DEFAULT_MODULES = [
     name: 'Daily Flow',
     description: 'User-first daily planning, goals, catchups, mood, and reflections.',
     category: 'work_management',
-    status: 'inactive',
+    status: 'active',
     sortOrder: 125,
     routeBase: '/daily-flow',
     isSystem: true,

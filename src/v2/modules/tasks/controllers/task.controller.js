@@ -18,6 +18,7 @@ const taskTeamDashboardService = require('../services/taskTeamDashboard.service'
 const taskWorkService = require('../services/taskWork.service');
 const taskInboxOverviewService = require('../services/taskInboxOverview.service');
 const taskPersonalDashboardService = require('../services/taskPersonalDashboard.service');
+const taskDashboardService = require('../services/taskDashboard.service');
 const env = require('../../../config/env');
 const { AppError } = require('../../../kernel/errors');
 
@@ -204,6 +205,11 @@ async function getMyTasksSummary(req, res) {
   return sendSuccess(res, data);
 }
 
+async function getMyDashboardTasks(req, res) {
+  const data = await taskDashboardService.getDashboardTasksAndSummary(req, req.query);
+  return sendSuccess(res, data);
+}
+
 async function getMyWork(req, res) {
   if (!env.v2.taskFeatures.myWork) throw new AppError('My Work is disabled', { status: 404 });
   return sendSuccess(res, await taskWorkService.listMyWork(req, req.query));
@@ -382,6 +388,7 @@ module.exports = {
   getInbox: asyncHandler(getInbox),
   getInboxOverview: asyncHandler(getInboxOverview),
   getMyTasks: asyncHandler(getMyTasks),
+  getMyDashboardTasks: asyncHandler(getMyDashboardTasks),
   getMyTasksSummary: asyncHandler(getMyTasksSummary),
   getMyWork: asyncHandler(getMyWork),
   getPersonalDashboard: asyncHandler(getPersonalDashboard),

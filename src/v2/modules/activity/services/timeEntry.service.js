@@ -92,7 +92,7 @@ async function createEntry(payload, accountId, req) {
     });
   }
 
-  await timeValidationService.validateTimeEntry({
+  const validation = await timeValidationService.validateTimeEntry({
     projectId: payload.projectId,
     userId,
     assignmentId: payload.assignmentId,
@@ -103,9 +103,14 @@ async function createEntry(payload, accountId, req) {
     source: payload.source || 'manual',
     timeWeek: week,
     throwOnError: true,
+    req,
   });
 
-  const assignment = await require('../../projects').getAssignmentForUser(payload.projectId, userId);
+  // Validation normally returns the resolved assignment, avoiding a duplicate
+  // lookup on the hot create path. Keep the fallback for injected validators
+  // and migration/test harnesses that return no detail object.
+  const assignment = validation?.assignment
+    || await require('../../projects').getAssignmentForUser(payload.projectId, userId);
 
   const entry = await timeEntryRepository.createEntry({
     timeWeekId: week._id,
@@ -142,11 +147,15 @@ async function updateEntry(entryId, payload, accountId, req) {
   const week = await timeWeekService.getWeekOrThrow(entry.timeWeekId);
   const nextMinutes = payload.minutes !== undefined ? Number(payload.minutes) : entry.minutes;
   const nextEntryDate = payload.entryDate ? new Date(payload.entryDate) : entry.entryDate;
+  const nextProjectId = payload.projectId || entry.projectId;
+  const projectChanged = String(nextProjectId) !== String(entry.projectId);
 
-  await timeValidationService.validateTimeEntry({
-    projectId: payload.projectId || entry.projectId,
+  const validation = await timeValidationService.validateTimeEntry({
+    projectId: nextProjectId,
     userId: entry.userId,
-    assignmentId: payload.assignmentId || entry.assignmentId,
+    assignmentId: projectChanged
+      ? (payload.assignmentId || null)
+      : (payload.assignmentId || entry.assignmentId),
     budgetId: payload.budgetId !== undefined ? payload.budgetId : entry.budgetId,
     workCategoryId: payload.workCategoryId || entry.workCategoryId,
     entryDate: nextEntryDate,
@@ -155,6 +164,7 @@ async function updateEntry(entryId, payload, accountId, req) {
     timeWeek: week,
     excludeEntryId: entry._id,
     throwOnError: true,
+    req,
   });
 
   const updates = {
@@ -162,10 +172,18 @@ async function updateEntry(entryId, payload, accountId, req) {
     entryDate: nextEntryDate,
     updatedBy: accountId,
   };
+  if (payload.projectId !== undefined) {
+    updates.projectId = nextProjectId;
+    updates.assignmentId = validation?.assignment?._id
+      || (projectChanged
+        ? (await require('../../projects').getAssignmentForUser(nextProjectId, entry.userId))._id
+        : entry.assignmentId);
+  }
   if (payload.title !== undefined) updates.title = payload.title;
   if (payload.description !== undefined) updates.description = payload.description;
   if (payload.budgetId !== undefined) updates.budgetId = payload.budgetId;
   if (payload.workCategoryId !== undefined) updates.workCategoryId = payload.workCategoryId;
+  if (payload.taskId !== undefined) updates.taskId = payload.taskId || null;
   if (payload.billable !== undefined) updates.billable = Boolean(payload.billable);
 
   const updated = await timeEntryRepository.updateEntry(entry._id, updates, null, { expectedStatus: 'draft' });
@@ -202,6 +220,8 @@ async function previewValidation(payload, req) {
     source: payload.source || 'manual',
     timeWeek: week,
     throwOnError: false,
+    req,
+    includeProjectStats: true,
   });
 }
 

@@ -89,8 +89,12 @@ const entryUpdateRules = [
   ...entryIdRules,
   body('minutes').optional().isInt({ min: 1 }),
   body('entryDate').optional().isISO8601(),
+  body('projectId').optional().isString(),
   body('workCategoryId').optional().isString(),
-  body('budgetId').optional().isString(),
+  body('budgetId').optional({ nullable: true }).isString(),
+  body('taskId').optional({ nullable: true }).isString(),
+  body('description').optional().isString(),
+  body('billable').optional().isBoolean(),
 ];
 
 const validatePreviewRules = [

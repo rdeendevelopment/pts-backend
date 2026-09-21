@@ -2,6 +2,7 @@ const { test, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const timeWeekService = require('../services/timeWeek.service');
 const timeEntryService = require('../services/timeEntry.service');
+const timeValidationService = require('../services/timeValidation.service');
 const activityErrorCodes = require('../errors/activityErrorCodes');
 const activitySocketEvents = require('../helpers/activitySocketEvents.helper');
 const activeTimerRepository = require('../repositories/activeTimer.repository');
@@ -203,6 +204,28 @@ test('flow 6: approved week and entries block further edits', async () => {
     }, ACCOUNT_ID, req),
     (err) => err.code === activityErrorCodes.ACTIVITY_WEEK_LOCKED
   );
+});
+
+test('editing an entry cannot persist when replacement capacity validation fails', async () => {
+  const req = makeReq();
+  const store = getLifecycleStore();
+  const { entry } = await createDraftWeekWithEntry(req);
+  const entryId = entry.id || entry._id;
+  let validationArgs = null;
+
+  timeValidationService.validateTimeEntry = async (args) => {
+    validationArgs = args;
+    throw new Error('User assignment cap exceeded');
+  };
+
+  await assert.rejects(
+    () => timeEntryService.updateEntry(entryId, { minutes: 2401 }, ACCOUNT_ID, req),
+    /User assignment cap exceeded/,
+  );
+
+  assert.equal(String(validationArgs.excludeEntryId), String(entryId));
+  assert.equal(validationArgs.minutes, 2401);
+  assert.equal(store.getEntry(entryId).minutes, ENTRY_MINUTES);
 });
 
 test('flow 7: lifecycle status guards fail cleanly on invalid transitions', async () => {

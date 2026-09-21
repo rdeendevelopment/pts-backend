@@ -68,10 +68,13 @@ function stubValidationDependencies({
   projectsModule.getApprovedBudgetsForProject = async () => budgets;
   projectsModule.getProjectStats = async () => ({ totalRemainingMinutes: 1000 });
   workCategoryRepository.findById = async () => ({ status: 'active' });
-  timeEntryRepository.sumMinutes = async (filters = {}) => {
-    if (filters.assignmentId && filters.statuses?.includes('draft')) {
+  timeEntryRepository.sumMinutesForCap = async (filters = {}) => {
+    if (filters.statuses?.includes('draft')) {
       return { totalMinutes: pendingDraftMinutes };
     }
+    return { totalMinutes: 0 };
+  };
+  timeEntryRepository.sumMinutes = async (filters = {}) => {
     if (filters.budgetId && filters.statuses?.includes('draft')) {
       return { totalMinutes: draftBudgetMinutes };
     }
@@ -93,6 +96,50 @@ test('getCapConsumedMinutes uses assignment stats for project capPeriod', async 
 
   assert.equal(total, 250);
   assert.equal(calls.length, 0);
+});
+
+test('project cap counts draft entries across every week for the assignment', async () => {
+  const calls = [];
+  timeEntryRepository.sumMinutesForCap = async (filters) => {
+    calls.push(filters);
+    return { totalMinutes: 75 };
+  };
+
+  const total = await timeValidationService.getPendingDraftMinutes(
+    assignmentBase,
+    ENTRY_DATE,
+    EXCLUDE_ENTRY_ID
+  );
+
+  assert.equal(total, 75);
+  assert.equal(calls.length, 1);
+  assert.equal(String(calls[0].assignmentId), ASSIGNMENT_ID);
+  assert.equal(String(calls[0].userId), USER_ID);
+  assert.equal(String(calls[0].projectId), PROJECT_ID);
+  assert.deepEqual(calls[0].statuses, ['draft']);
+  assert.equal(calls[0].entryDateFrom, null);
+  assert.equal(calls[0].entryDateTo, null);
+  assert.equal('timeWeekId' in calls[0], false);
+  assert.equal(String(calls[0].excludeEntryId), EXCLUDE_ENTRY_ID);
+});
+
+test('week cap counts only drafts inside the configured cap week', async () => {
+  const calls = [];
+  timeEntryRepository.sumMinutesForCap = async (filters) => {
+    calls.push(filters);
+    return { totalMinutes: 45 };
+  };
+  const assignment = {
+    ...assignmentBase,
+    allocation: { ...assignmentBase.allocation, capPeriod: 'week' },
+  };
+
+  await timeValidationService.getPendingDraftMinutes(assignment, ENTRY_DATE);
+
+  const { weekStartDate, weekEndDate } = require('../helpers/week.helper').getWeekBounds(ENTRY_DATE);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].entryDateFrom.toISOString(), weekStartDate.toISOString());
+  assert.equal(calls[0].entryDateTo.toISOString(), weekEndDate.toISOString());
 });
 
 test('getCapConsumedMinutes scopes day cap to assignment, user, project, and day range', async () => {

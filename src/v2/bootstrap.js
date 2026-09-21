@@ -103,6 +103,10 @@ async function runBootstrapMaintenance() {
   await ensureDailyFlowModuleIndexes();
   info('PTS v2 daily flow indexes ensured');
 
+  const { ensureTodoIndexes } = require('./modules/todos');
+  await ensureTodoIndexes();
+  info('PTS v2 todo indexes ensured');
+
   const { ensureAiModuleIndexes, bootstrapAiModule } = require('./modules/ai');
   await ensureAiModuleIndexes();
   bootstrapAiModule();
