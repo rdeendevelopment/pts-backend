@@ -81,7 +81,7 @@ async function summary(filters) {
       highPriority: { $sum: { $cond: [{ $and: [{ $eq: ['$priority', 'high'] }, { $eq: ['$status', 'pending'] }] }, 1, 0] } },
     } },
   ]);
-  return rows || { total: 0, completed: 0, pending: 0, highPriority: 0 };
+  return rows[0] || { total: 0, completed: 0, pending: 0, highPriority: 0 };
 }
 
 module.exports = { activeQuery, sortSpec, create, findById, list, update, softDelete, summary };
