@@ -31,4 +31,20 @@ const listRules = [
   query('page').optional().isInt({ min: 1 }), query('limit').optional().isInt({ min: 1, max: 100 }),
 ];
 
-module.exports = { createRules, updateRules, listRules, idRules: [idRule] };
+const availableTaskRules = [
+  query('date').optional().matches(/^\d{4}-\d{2}-\d{2}$/),
+  query('search').optional().isString().isLength({ max: 200 }),
+  query('projectId').optional().matches(objectId),
+  query('priority').optional().isIn(['none', 'low', 'medium', 'high', 'urgent']),
+  query('workflowStatusId').optional().matches(objectId),
+  query('page').optional().isInt({ min: 1 }), query('limit').optional().isInt({ min: 1, max: 100 }),
+];
+
+const addTasksRules = [
+  body('taskIds').isArray({ min: 1, max: 100 }), body('taskIds.*').matches(objectId),
+  body('todoDate').optional().matches(/^\d{4}-\d{2}-\d{2}$/),
+];
+
+const completionRules = [idRule, body('completionMode').optional().isIn(['my_day_only', 'my_day_and_task'])];
+
+module.exports = { createRules, updateRules, listRules, availableTaskRules, addTasksRules, completionRules, idRules: [idRule] };

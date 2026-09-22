@@ -25,7 +25,7 @@ function sortSpec(sort = 'newest') {
 function withDetails(query) {
   return query
     .populate('projectId', 'name code isDeleted')
-    .populate('linkedTaskId', 'title projectId isDeleted')
+    .populate('linkedTaskId', 'title projectId status isDeleted')
     .populate('createdBy', 'firstName lastName email');
 }
 
@@ -67,11 +67,39 @@ async function softDelete(id, accountId) {
   ).lean();
 }
 
+async function findActiveLinked(createdBy, linkedTaskId, todoDate) {
+  return withDetails(getTodoModel().findOne({ createdBy, linkedTaskId, todoDate, isDeleted: false })).lean();
+}
+
+async function upsertLinked(payload) {
+  const filter = { createdBy: payload.createdBy, linkedTaskId: payload.linkedTaskId, todoDate: payload.todoDate, isDeleted: false };
+  await getTodoModel().updateOne(filter, { $setOnInsert: payload }, { upsert: true, runValidators: true });
+  return withDetails(getTodoModel().findOne(filter)).lean();
+}
+
+async function listOutstanding(createdBy, beforeDate, { page = 1, limit = 50 } = {}) {
+  const query = { createdBy, todoDate: { $lt: beforeDate }, status: 'pending', isDeleted: false };
+  const skip = (page - 1) * limit;
+  const [items, total] = await Promise.all([
+    withDetails(getTodoModel().find(query).sort({ todoDate: 1, priorityRank: 1, createdAt: 1 }).skip(skip).limit(limit)).lean(),
+    getTodoModel().countDocuments(query),
+  ]);
+  return { items, total };
+}
+
+async function listAllOutstanding(createdBy, beforeDate) {
+  return withDetails(getTodoModel().find({ createdBy, todoDate: { $lt: beforeDate }, status: 'pending', isDeleted: false }).sort({ todoDate: 1, createdAt: 1 })).lean();
+}
+
+function normalizeSummary(rows) {
+  return rows[0] || { total: 0, completed: 0, pending: 0, highPriority: 0 };
+}
+
 async function summary(filters) {
   const Todo = getTodoModel();
   const base = activeQuery(filters);
   delete base.status;
-  const [rows] = await Todo.aggregate([
+  const rows = await Todo.aggregate([
     { $match: base },
     { $group: {
       _id: null,
@@ -81,7 +109,7 @@ async function summary(filters) {
       highPriority: { $sum: { $cond: [{ $and: [{ $eq: ['$priority', 'high'] }, { $eq: ['$status', 'pending'] }] }, 1, 0] } },
     } },
   ]);
-  return rows[0] || { total: 0, completed: 0, pending: 0, highPriority: 0 };
+  return normalizeSummary(rows);
 }
 
-module.exports = { activeQuery, sortSpec, create, findById, list, update, softDelete, summary };
+module.exports = { activeQuery, sortSpec, create, findById, list, update, softDelete, summary, normalizeSummary, findActiveLinked, upsertLinked, listOutstanding, listAllOutstanding };

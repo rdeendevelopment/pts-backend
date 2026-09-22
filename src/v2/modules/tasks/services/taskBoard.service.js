@@ -186,6 +186,18 @@ async function getProjectBoard(projectId, filters = {}, req = null) {
     enrichedBoard[statusId] = await Promise.all(list.map((task) => enrichTask(task, project)));
   }
 
+  if (req?.v2Auth?.accountId) {
+    const { getTodoModel } = require('../../todos/models/todo.model');
+    const taskIds = Object.values(enrichedBoard).flat().map((task) => task.id || task._id).filter(Boolean);
+    const now = new Date();
+    const todoDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const links = taskIds.length ? await getTodoModel().find({ createdBy: req.v2Auth.accountId, linkedTaskId: { $in: taskIds }, todoDate, isDeleted: false }).select('_id linkedTaskId').lean() : [];
+    const linkMap = new Map(links.map((todo) => [String(todo.linkedTaskId), String(todo._id)]));
+    for (const [statusId, list] of Object.entries(enrichedBoard)) {
+      enrichedBoard[statusId] = list.map((task) => ({ ...task, myDayTodoId: linkMap.get(String(task.id || task._id)) || null }));
+    }
+  }
+
   const taskKeyPrefix = deriveTaskKeyPrefix(project.name, project.code);
   return {
     project: {

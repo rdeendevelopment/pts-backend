@@ -17,6 +17,9 @@ const TodoSchema = new Schema({
   createdBy: { type: Schema.Types.ObjectId, ref: 'PtsAccount', required: true, index: true },
   completedBy: { type: Schema.Types.ObjectId, ref: 'PtsAccount', default: null },
   completedAt: { type: Date, default: null },
+  linkedTaskCompletionRequested: { type: Boolean, default: false },
+  linkedTaskCompletionSucceeded: { type: Boolean, default: false },
+  linkedTaskCompletedAt: { type: Date, default: null },
   isDeleted: { type: Boolean, default: false, index: true },
   deletedAt: { type: Date, default: null },
 }, { collection: 'pts_todos', timestamps: true });
@@ -24,6 +27,10 @@ const TodoSchema = new Schema({
 TodoSchema.index({ createdBy: 1, todoDate: 1, status: 1 });
 TodoSchema.index({ projectId: 1, todoDate: 1 });
 TodoSchema.index({ isDeleted: 1, createdBy: 1, todoDate: 1 });
+TodoSchema.index(
+  { createdBy: 1, linkedTaskId: 1, todoDate: 1 },
+  { unique: true, partialFilterExpression: { linkedTaskId: { $type: 'objectId' }, isDeleted: false }, name: 'uniq_active_linked_task_per_day' }
+);
 
 async function ensureTodoIndexes() {
   const model = getV2Model('PtsTodo', TodoSchema);

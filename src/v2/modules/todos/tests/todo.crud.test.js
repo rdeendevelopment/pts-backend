@@ -68,14 +68,16 @@ test('edit and soft delete remain owner scoped', async () => {
 });
 
 test('list passes project, status, priority, date, sorting and pagination to repository', async () => {
-  const original = repository.list;
+  const originals = { list: repository.list, summary: repository.summary };
   let call;
   repository.list = async (filters, options) => { call = { filters, options }; return { items: [], total: 0 }; };
+  repository.summary = async () => ({ total: 4, completed: 1, pending: 3, highPriority: 2 });
   try {
-    await service.list(req, { date: '2026-09-20', status: 'overdue', priority: 'high', projectId: 'personal', sort: 'deadline', page: 2, limit: 20 });
+    const result = await service.list(req, { date: '2026-09-20', status: 'overdue', priority: 'high', projectId: 'personal', sort: 'deadline', page: 2, limit: 20 });
     assert.deepEqual(call.filters, { createdBy: accountId, todoDate: '2026-09-20', status: 'overdue', priority: 'high', projectId: null });
     assert.deepEqual(call.options, { page: 2, limit: 20, sort: 'deadline' });
-  } finally { repository.list = original; }
+    assert.deepEqual(result.summary, { total: 4, completed: 1, pending: 3, highPriority: 2, completionPercentage: 25 });
+  } finally { Object.assign(repository, originals); }
 });
 
 test('daily summary and moving pending work to today are supported', async () => {
@@ -87,4 +89,10 @@ test('daily summary and moving pending work to today are supported', async () =>
     assert.equal((await service.summary(req, { date: '2026-09-21' })).completionPercentage, 75);
     assert.equal((await service.moveToToday(req, todoId, 'move')).todoDate, service.todayKey());
   } finally { Object.assign(repository, originals); }
+});
+
+test('repository summary returns the aggregation row instead of an array-shaped zero summary', async () => {
+  const rows = [{ _id: null, total: 5, completed: 2, pending: 3, highPriority: 1 }];
+  assert.deepEqual(repository.normalizeSummary(rows), rows[0]);
+  assert.deepEqual(repository.normalizeSummary([]), { total: 0, completed: 0, pending: 0, highPriority: 0 });
 });
