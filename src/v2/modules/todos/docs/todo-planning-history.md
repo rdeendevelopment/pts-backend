@@ -42,4 +42,4 @@ The first command covers the three-day 10/3/7 planning scenario, idempotent Brin
 
 ## Reporting
 
-`GET /api/v2/todos/reports?period=daily|weekly|monthly&date=YYYY-MM-DD` returns owner-scoped, date-bounded metrics. Daily My Day lists and summaries use the same history calculations.
+`GET /api/v2/todos/reports?period=daily|weekly|monthly&date=YYYY-MM-DD` returns owner-scoped, date-bounded metrics. `pendingAtDayEnd` comes from immutable entries for the reporting date, `currentlyPending` comes from each Todo's latest status, and `completedLate`/`completedLateItems[].completedLateDays` use the final completion date minus `firstPlannedDate`. Daily My Day lists and summaries use the same history calculations.

@@ -37,12 +37,37 @@ test('historical outcomes remain pending/moved after later completion', () => {
 test('daily, weekly and monthly reports use the same immutable entries', () => {
   const daily = buildReport([carried], '2026-09-15', '2026-09-15');
   assert.equal(daily.totalPlanned, 1); assert.equal(daily.pendingAtDayEnd, 1); assert.equal(daily.completedWithinSameDay, 0);
+  assert.equal(daily.currentlyPending, 0); assert.equal(daily.completedLate, 1); assert.equal(daily.completedLateItems[0].completedLateDays, 3);
   const weeklyRange = reportRange('weekly', '2026-09-18');
   const weekly = buildReport([carried], weeklyRange.startDate, weeklyRange.endDate);
   assert.equal(weekly.totalPlanned, 4); assert.equal(weekly.completedWithinSameDay, 1); assert.equal(weekly.completedAfterBeingCarried, 1);
   const monthlyRange = reportRange('monthly', '2026-09-18');
   const monthly = buildReport([carried], monthlyRange.startDate, monthlyRange.endDate);
   assert.equal(monthly.totalPlanned, 4); assert.equal(monthly.completedWithinSameDay, 1); assert.equal(monthly.completedAfterBeingCarried, 1);
+});
+
+test('Sep 21 pending history and Sep 23 completion remain simultaneously true', () => {
+  const completed = {
+    ...carried, firstPlannedDate: '2026-09-21', currentPlannedDate: '2026-09-23', carryForwardCount: 2,
+    completedAt: new Date('2026-09-23T12:00:00.000Z'),
+    completionEvents: [{ completedAt: new Date('2026-09-23T12:00:00.000Z'), completedBy: id, plannedDate: '2026-09-23' }],
+    planningHistory: [
+      { plannedDate: '2026-09-21', source: 'created', statusAtDayEnd: 'moved_forward', movedToDate: '2026-09-22' },
+      { plannedDate: '2026-09-22', source: 'carried_forward', carriedFromDate: '2026-09-21', statusAtDayEnd: 'moved_forward', movedToDate: '2026-09-23' },
+      { plannedDate: '2026-09-23', source: 'carried_forward', carriedFromDate: '2026-09-22', statusAtDayEnd: 'completed', completedAt: new Date('2026-09-23T12:00:00.000Z') },
+    ],
+  };
+  const dayOne = toDto(completed, null, '2026-09-21');
+  const dayThree = toDto(completed, null, '2026-09-23');
+  assert.equal(dayOne.status, 'pending');
+  assert.equal(dayOne.currentStatus, 'completed');
+  assert.equal(dayOne.dayOutcome.laterCompletedDate, '2026-09-23');
+  assert.equal(dayThree.status, 'completed');
+  assert.equal(dayThree.completedLateDays, 2);
+  const report = buildReport([completed], '2026-09-21', '2026-09-21');
+  assert.equal(report.pendingAtDayEnd, 1);
+  assert.equal(report.currentlyPending, 0);
+  assert.equal(report.completedLate, 1);
 });
 
 test('task overdue and planning overdue are calculated independently', () => {

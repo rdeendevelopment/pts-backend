@@ -12,14 +12,21 @@ const projectId = '507f191e810c19729de860ec';
 const req = { v2Auth: { accountId, account: { accountType: 'super_admin' }, sessionAccess: { roles: [] } } };
 const todo = (overrides = {}) => ({ _id: todoId, title: 'Carry me', status: 'pending', priority: 'high', todoDate: '2026-09-20', firstPlannedDate: '2026-09-20', currentPlannedDate: '2026-09-20', planningHistory: [{ plannedDate: '2026-09-20', source: 'created', statusAtDayEnd: 'pending' }], carryForwardCount: 0, createdBy: accountId, isDeleted: false, ...overrides });
 
-test('outstanding returns pending historical items without mutating their dates', async () => {
+test('outstanding returns pending historical items with their later completion truth', async () => {
   const original = repository.listOutstandingOnDate;
-  const row = todo();
+  const row = todo({
+    status: 'completed', completedAt: new Date('2026-09-23T12:00:00.000Z'),
+    completionEvents: [{ completedAt: new Date('2026-09-23T12:00:00.000Z'), completedBy: accountId, plannedDate: '2026-09-23' }],
+  });
   repository.listOutstandingOnDate = async () => [row];
   try {
     const result = await service.outstanding(req, { date: '2026-09-21' });
     assert.equal(result.items[0].todoDate, '2026-09-20');
     assert.equal(result.items[0].daysPending, 1);
+    assert.equal(result.items[0].status, 'pending');
+    assert.equal(result.items[0].currentStatus, 'completed');
+    assert.equal(result.items[0].dayOutcome.statusAtDayEnd, 'pending');
+    assert.equal(result.items[0].dayOutcome.laterCompletedDate, '2026-09-23');
     assert.equal(row.todoDate, '2026-09-20');
   } finally { repository.listOutstandingOnDate = original; }
 });

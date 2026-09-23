@@ -90,6 +90,15 @@ async function run() {
 
     const completed = await request(token, `/todos/${ids[3]}/complete`, { method: 'PATCH', body: JSON.stringify({ completionMode: 'my_day_only' }) });
     assert.equal(completed.status, 'completed');
+    assert.equal(completed.completedLateDays, 2);
+    const historyAfterCompletion = await request(token, `/todos?date=${day1}&limit=100`);
+    const completedHistory = historyAfterCompletion.items.find((item) => item.id === ids[3]);
+    assert.equal(completedHistory?.status, 'pending');
+    assert.equal(completedHistory?.currentStatus, 'completed');
+    assert.equal(completedHistory?.dayOutcome?.laterCompletedDate, day3);
+    assert.equal(completedHistory?.completedLateDays, 2);
+    const historicalReport = await request(token, `/todos/reports?period=daily&date=${day1}`);
+    assert(historicalReport.completedLateItems.some((item) => item.id === ids[3] && item.completedLateDays === 2));
     const reopened = await request(token, `/todos/${ids[3]}/reopen`, { method: 'PATCH', body: '{}' });
     assert.equal(reopened.status, 'pending');
     const afterReopen = await request(token, `/todos?date=${day3}&limit=100`);

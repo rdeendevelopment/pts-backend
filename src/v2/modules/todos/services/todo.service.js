@@ -8,7 +8,7 @@ const taskWorkService = require('../../tasks/services/taskWork.service');
 const projectAssignmentRepository = require('../../projects/repositories/projectAssignment.repository');
 const { resolveUserIdFromAuth } = require('../../tasks/helpers/taskAccessScope.helper');
 const { formatDayKey, getBusinessTimezone } = require('../../activity/helpers/week.helper');
-const { daysBetween, planningEntries, outcomeForDay, isOutstandingOnDate, buildReport, reportRange } = require('../helpers/todoHistory.helper');
+const { daysBetween, planningEntries, outcomeForDay, isOutstandingOnDate, buildReport, reportRange, latestCompletionDate } = require('../helpers/todoHistory.helper');
 const repository = require('../repositories/todo.repository');
 
 const priorities = ['high', 'medium', 'low'];
@@ -54,6 +54,7 @@ function toDto(todo, accessibleProjectIds = null, selectedDate = null) {
   const workflowStatus = task?.workflowStatusId && typeof task.workflowStatusId === 'object' ? task.workflowStatusId : null;
   const taskDeadline = task?.dueDate?.toISOString?.() || task?.dueDate || null;
   const dayOutcome = outcomeForDay(todo, comparisonDate);
+  const completedDay = latestCompletionDate(todo);
   const displayStatus = selectedDate && dayOutcome ? (dayOutcome.completedThisDay ? 'completed' : 'pending') : todo.status;
   const history = planningEntries(todo);
   const lastMove = [...history].reverse().find((entry) => entry.movedAt);
@@ -81,6 +82,7 @@ function toDto(todo, accessibleProjectIds = null, selectedDate = null) {
     completedBy: todo.completedBy ? String(todo.completedBy) : null,
     completedAt: todo.completedAt?.toISOString?.() || todo.completedAt || null,
     planningOverdueDays: daysBetween(firstPlannedDate, comparisonDate),
+    completedLateDays: todo.status === 'completed' && completedDay ? daysBetween(firstPlannedDate, completedDay) : null,
     daysPending: daysBetween(firstPlannedDate, comparisonDate),
     taskOverdue: Boolean(linkedTaskAvailable && taskDeadline && task.status !== 'completed' && new Date(taskDeadline).getTime() < Date.now()),
     dayOutcome, historicalOutcome: dayOutcome, currentStatus: todo.status,
@@ -170,6 +172,7 @@ async function list(req, query = {}) {
     summary: {
       total: daily.totalPlanned, completed: daily.completedWithinSameDay, pending: daily.pendingAtDayEnd,
       highPriority, completionPercentage: daily.completionPercentage,
+      currentlyPending: daily.currentlyPending, completedLate: daily.completedLate,
       outstanding: outstandingCandidates.filter((todo) => isOutstandingOnDate(todo, filters.todoDate)).length,
       movedForward: daily.carriedOutOfPeriod, report: daily,
     },
@@ -289,7 +292,21 @@ async function outstanding(req, query = {}) {
   const outstandingItems = candidates.filter((todo) => isOutstandingOnDate(todo, date));
   const items = outstandingItems.slice((page - 1) * limit, page * limit);
   const accessible = await accessibleProjectIds(req);
-  return { items: items.map((todo) => toDto(todo, accessible, date)), pagination: { page, limit, total: outstandingItems.length, pages: Math.ceil(outstandingItems.length / limit) } };
+  return {
+    items: items.map((todo) => {
+      const dto = toDto(todo, accessible, date);
+      if (!dto.dayOutcome) {
+        const laterCompletedDate = latestCompletionDate(todo);
+        dto.status = 'pending';
+        dto.dayOutcome = dto.historicalOutcome = {
+          plannedDate: date, statusAtDayEnd: 'pending', completedThisDay: false, movedToDate: null,
+          laterCompletedDate: laterCompletedDate && laterCompletedDate > date ? laterCompletedDate : null,
+        };
+      }
+      return dto;
+    }),
+    pagination: { page, limit, total: outstandingItems.length, pages: Math.ceil(outstandingItems.length / limit) },
+  };
 }
 
 async function moveAllOutstanding(req, query = {}) {
@@ -342,7 +359,7 @@ async function summary(req, query = {}) {
   const items = await repository.listForReport(scope.createdBy, scope.todoDate, scope.todoDate);
   const outstandingItems = (await repository.listOutstandingOnDate(scope.createdBy, scope.todoDate)).filter((todo) => isOutstandingOnDate(todo, scope.todoDate));
   const report = buildReport(items, scope.todoDate, scope.todoDate);
-  return { total: report.totalPlanned, completed: report.completedWithinSameDay, pending: report.pendingAtDayEnd, outstanding: outstandingItems.length, highPriority: items.filter((todo) => todo.priority === 'high' && outcomeForDay(todo, scope.todoDate)?.statusAtDayEnd !== 'completed').length, completionPercentage: report.completionPercentage, movedForward: report.carriedOutOfPeriod, report };
+  return { total: report.totalPlanned, completed: report.completedWithinSameDay, pending: report.pendingAtDayEnd, currentlyPending: report.currentlyPending, completedLate: report.completedLate, outstanding: outstandingItems.length, highPriority: items.filter((todo) => todo.priority === 'high' && outcomeForDay(todo, scope.todoDate)?.statusAtDayEnd !== 'completed').length, completionPercentage: report.completionPercentage, movedForward: report.carriedOutOfPeriod, report };
 }
 
 async function report(req, query = {}) {

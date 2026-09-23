@@ -17,6 +17,11 @@ function dateKey(value) {
   return Number.isNaN(date.getTime()) ? null : formatDayKey(date, getBusinessTimezone());
 }
 
+function latestCompletionDate(todo) {
+  return dateKey(todo.completedAt)
+    || dateKey([...(todo.completionEvents || [])].reverse().find((event) => !event.reopenedAt)?.completedAt);
+}
+
 function planningEntries(todo) {
   if (Array.isArray(todo.planningHistory) && todo.planningHistory.length) return todo.planningHistory;
   const plannedDate = todo.currentPlannedDate || todo.todoDate || todo.firstPlannedDate;
@@ -40,8 +45,7 @@ function outcomeForDay(todo, dayKey) {
   const entry = entryForDay(todo, dayKey);
   if (!entry) return null;
   const completedDay = dateKey(entry.completedAt);
-  const finalCompletedDay = dateKey(todo.completedAt)
-    || dateKey([...(todo.completionEvents || [])].reverse().find((event) => !event.reopenedAt)?.completedAt);
+  const finalCompletedDay = latestCompletionDate(todo);
   return {
     plannedDate: dayKey,
     statusAtDayEnd: entry.statusAtDayEnd,
@@ -93,11 +97,24 @@ function buildReport(items, startDate, endDate) {
     .sort((a, b) => b.carryForwardCount - a.carryForwardCount)
     .slice(0, 10)
     .map((todo) => ({ id: String(todo._id), title: todo.title, carryForwardCount: todo.carryForwardCount, firstPlannedDate: todo.firstPlannedDate, currentPlannedDate: todo.currentPlannedDate }));
+  const currentlyPending = items.filter((todo) => todo.status === 'pending').length;
+  const completedLateItems = items.filter((todo) => {
+    const completedDay = latestCompletionDate(todo);
+    return todo.status === 'completed' && completedDay && daysBetween(todo.firstPlannedDate, completedDay) > 0;
+  }).map((todo) => ({
+    id: String(todo._id), title: todo.title,
+    completedAt: todo.completedAt,
+    completedLateDays: daysBetween(todo.firstPlannedDate, latestCompletionDate(todo)),
+    firstPlannedDate: todo.firstPlannedDate,
+  }));
   return {
     period: { startDate, endDate },
     totalPlanned: entries.length,
     completedWithinSameDay,
     pendingAtDayEnd,
+    currentlyPending,
+    completedLate: completedLateItems.length,
+    completedLateItems,
     carriedIntoPeriod,
     carriedOutOfPeriod,
     completedAfterBeingCarried,
@@ -124,4 +141,4 @@ function reportRange(period, anchorDate) {
   return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) };
 }
 
-module.exports = { daysBetween, planningEntries, entryForDay, outcomeForDay, isOutstandingOnDate, buildReport, reportRange, dateKey };
+module.exports = { daysBetween, planningEntries, entryForDay, outcomeForDay, isOutstandingOnDate, buildReport, reportRange, dateKey, latestCompletionDate };
