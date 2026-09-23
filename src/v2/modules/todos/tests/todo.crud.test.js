@@ -6,7 +6,7 @@ const service = require('../services/todo.service');
 const accountId = '507f1f77bcf86cd799439011';
 const todoId = '507f191e810c19729de860ea';
 const req = { v2Auth: { accountId, account: { accountType: 'super_admin' }, sessionAccess: { roles: [] } } };
-const base = { _id: todoId, title: 'Review upload', status: 'pending', priority: 'medium', todoDate: '2026-09-21', createdBy: accountId, isDeleted: false };
+const base = { _id: todoId, title: 'Review upload', status: 'pending', priority: 'medium', todoDate: '2026-09-21', firstPlannedDate: '2026-09-21', currentPlannedDate: '2026-09-21', planningHistory: [{ plannedDate: '2026-09-21', source: 'created', statusAtDayEnd: 'pending' }], carryForwardCount: 0, createdBy: accountId, isDeleted: false };
 
 test('creates a minimal todo with production defaults', async () => {
   const original = repository.create;
@@ -41,10 +41,11 @@ test('rejects a manually linked task when no authorized project is supplied', as
 });
 
 test('complete and reopen persist completion audit fields', async () => {
-  const originals = { findById: repository.findById, update: repository.update };
+  const originals = { findById: repository.findById, complete: repository.complete, reopen: repository.reopen };
   let current = { ...base };
   repository.findById = async () => current;
-  repository.update = async (_id, _account, updates) => (current = { ...current, ...updates });
+  repository.complete = async (_id, _account, values) => (current = { ...current, status: 'completed', completedAt: values.completedAt, completedBy: values.completedBy });
+  repository.reopen = async () => (current = { ...current, status: 'pending', completedAt: null, completedBy: null });
   try {
     const completed = await service.complete(req, todoId);
     assert.equal(completed.status, 'completed'); assert.equal(completed.completedBy, accountId); assert.ok(completed.completedAt);
@@ -68,23 +69,30 @@ test('edit and soft delete remain owner scoped', async () => {
 });
 
 test('list passes project, status, priority, date, sorting and pagination to repository', async () => {
-  const originals = { list: repository.list, summary: repository.summary };
+  const originals = { list: repository.list, listForReport: repository.listForReport, listOutstandingOnDate: repository.listOutstandingOnDate };
   let call;
   repository.list = async (filters, options) => { call = { filters, options }; return { items: [], total: 0 }; };
-  repository.summary = async () => ({ total: 4, completed: 1, pending: 3, highPriority: 2 });
+  repository.listForReport = async () => [];
+  repository.listOutstandingOnDate = async () => [];
   try {
     const result = await service.list(req, { date: '2026-09-20', status: 'overdue', priority: 'high', projectId: 'personal', sort: 'deadline', page: 2, limit: 20 });
     assert.deepEqual(call.filters, { createdBy: accountId, todoDate: '2026-09-20', status: 'overdue', priority: 'high', projectId: null });
     assert.deepEqual(call.options, { page: 2, limit: 20, sort: 'deadline' });
-    assert.deepEqual(result.summary, { total: 4, completed: 1, pending: 3, highPriority: 2, completionPercentage: 25 });
+    assert.equal(result.summary.total, 0);
   } finally { Object.assign(repository, originals); }
 });
 
 test('daily summary and moving pending work to today are supported', async () => {
-  const originals = { summary: repository.summary, findById: repository.findById, update: repository.update };
-  repository.summary = async () => ({ total: 4, completed: 3, pending: 1, highPriority: 1 });
-  repository.findById = async () => ({ ...base, todoDate: '2026-09-20' });
-  repository.update = async (_id, _owner, updates) => ({ ...base, ...updates });
+  const originals = { listForReport: repository.listForReport, listOutstandingOnDate: repository.listOutstandingOnDate, findById: repository.findById, carryForward: repository.carryForward };
+  repository.listForReport = async () => [
+    { ...base, status: 'completed', planningHistory: [{ plannedDate: '2026-09-21', statusAtDayEnd: 'completed', completedAt: '2026-09-21T12:00:00Z' }] },
+    { ...base, _id: '507f191e810c19729de860eb', status: 'completed', planningHistory: [{ plannedDate: '2026-09-21', statusAtDayEnd: 'completed', completedAt: '2026-09-21T13:00:00Z' }] },
+    { ...base, _id: '507f191e810c19729de860ec', status: 'completed', planningHistory: [{ plannedDate: '2026-09-21', statusAtDayEnd: 'completed', completedAt: '2026-09-21T14:00:00Z' }] },
+    { ...base, _id: '507f191e810c19729de860ed' },
+  ];
+  repository.listOutstandingOnDate = async () => [];
+  repository.findById = async () => ({ ...base, todoDate: '2026-09-20', currentPlannedDate: '2026-09-20', planningHistory: [{ plannedDate: '2026-09-20', statusAtDayEnd: 'pending' }] });
+  repository.carryForward = async (_id, _owner, values) => ({ ...base, todoDate: values.toDate, currentPlannedDate: values.toDate, planningHistory: [{ plannedDate: '2026-09-20' }, { plannedDate: values.toDate }] });
   try {
     assert.equal((await service.summary(req, { date: '2026-09-21' })).completionPercentage, 75);
     assert.equal((await service.moveToToday(req, todoId, 'move')).todoDate, service.todayKey());

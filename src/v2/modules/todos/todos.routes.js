@@ -3,13 +3,14 @@ const { validateRequest } = require('../../kernel/validators');
 const authenticate = require('../auth/middleware/authenticate');
 const authorize = require('../rbac/middleware/authorize');
 const controller = require('./controllers/todo.controller');
-const { createRules, updateRules, listRules, availableTaskRules, addTasksRules, completionRules, idRules } = require('./validators/todo.validators');
+const { createRules, updateRules, listRules, reportRules, availableTaskRules, addTasksRules, completionRules, idRules } = require('./validators/todo.validators');
 
 const router = Router();
 router.use(authenticate);
 const canView = authorize(['daily_flow.view', 'daily_flow.manage'], { mode: 'any' });
 const canManage = authorize('daily_flow.manage');
 router.get('/summary', canView, listRules, validateRequest, controller.summary);
+router.get('/reports', canView, reportRules, validateRequest, controller.report);
 router.get('/outstanding', canView, listRules, validateRequest, controller.outstanding);
 router.post('/outstanding/move-to-today', canManage, controller.moveAllOutstanding);
 router.get('/available-tasks', canView, availableTaskRules, validateRequest, controller.availableTasks);

@@ -7,6 +7,8 @@ const taskBoardService = require('../../tasks/services/taskBoard.service');
 const taskWorkService = require('../../tasks/services/taskWork.service');
 const projectAssignmentRepository = require('../../projects/repositories/projectAssignment.repository');
 const { resolveUserIdFromAuth } = require('../../tasks/helpers/taskAccessScope.helper');
+const { formatDayKey, getBusinessTimezone } = require('../../activity/helpers/week.helper');
+const { daysBetween, planningEntries, outcomeForDay, isOutstandingOnDate, buildReport, reportRange } = require('../helpers/todoHistory.helper');
 const repository = require('../repositories/todo.repository');
 
 const priorities = ['high', 'medium', 'low'];
@@ -16,7 +18,7 @@ const dayPattern = /^\d{4}-\d{2}-\d{2}$/;
 const priorityRank = { high: 1, medium: 2, low: 3 };
 
 function todayKey(now = new Date()) {
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return formatDayKey(now, getBusinessTimezone());
 }
 
 function fail(message, status = 400, fields) {
@@ -37,7 +39,7 @@ function parseDate(value, field) {
   return date;
 }
 
-function toDto(todo, accessibleProjectIds = null) {
+function toDto(todo, accessibleProjectIds = null, selectedDate = null) {
   if (!todo) return null;
   const project = todo.projectId && typeof todo.projectId === 'object' ? todo.projectId : null;
   const task = todo.linkedTaskId && typeof todo.linkedTaskId === 'object' ? todo.linkedTaskId : null;
@@ -46,24 +48,42 @@ function toDto(todo, accessibleProjectIds = null) {
   const projectAccessible = !projectId || accessibleProjectIds === null || accessibleProjectIds.has(projectId);
   const projectAvailable = Boolean(project && !project.isDeleted && projectAccessible);
   const linkedTaskAvailable = Boolean(task && !task.isDeleted && task.status !== 'archived' && projectAccessible);
-  const originalDate = new Date(`${todo.todoDate}T00:00:00`);
-  const todayDate = new Date(`${todayKey()}T00:00:00`);
+  const currentPlannedDate = todo.currentPlannedDate || todo.todoDate;
+  const firstPlannedDate = todo.firstPlannedDate || todo.todoDate;
+  const comparisonDate = selectedDate || todayKey();
+  const workflowStatus = task?.workflowStatusId && typeof task.workflowStatusId === 'object' ? task.workflowStatusId : null;
+  const taskDeadline = task?.dueDate?.toISOString?.() || task?.dueDate || null;
+  const dayOutcome = outcomeForDay(todo, comparisonDate);
+  const displayStatus = selectedDate && dayOutcome ? (dayOutcome.completedThisDay ? 'completed' : 'pending') : todo.status;
+  const history = planningEntries(todo);
+  const lastMove = [...history].reverse().find((entry) => entry.movedAt);
   return {
-    id: String(todo._id), title: todo.title, notes: todo.notes, status: todo.status,
-    priority: todo.priority, todoDate: todo.todoDate,
+    id: String(todo._id), title: todo.title, notes: todo.notes, status: displayStatus,
+    priority: todo.priority, todoDate: currentPlannedDate,
+    firstPlannedDate, currentPlannedDate,
+    planningHistory: history, carryForwardCount: Number(todo.carryForwardCount || 0),
+    lastCarriedForwardAt: lastMove?.movedAt?.toISOString?.() || lastMove?.movedAt || null,
+    sourceType: todo.sourceType || (todo.linkedTaskId ? 'task' : 'personal'),
     deadline: todo.deadline?.toISOString?.() || todo.deadline || null,
     reminderAt: todo.reminderAt?.toISOString?.() || todo.reminderAt || null,
     projectId,
     project: projectAvailable ? { id: String(project._id), name: project.name, code: project.code || null } : null,
     projectUnavailable: Boolean(projectId && !projectAvailable),
-    linkedTaskId: task ? String(task._id) : (todo.linkedTaskId ? String(todo.linkedTaskId) : null),
-    linkedTask: linkedTaskAvailable ? { id: String(task._id), title: task.title } : null,
+    linkedTaskId: linkedTaskAvailable ? String(task._id) : null,
+    linkedTask: linkedTaskAvailable ? {
+      id: String(task._id), title: task.title, status: task.status,
+      workflowStatus: workflowStatus ? { id: String(workflowStatus._id), name: workflowStatus.name, color: workflowStatus.color || null } : null,
+      deadline: taskDeadline,
+    } : null,
     linkedTaskUnavailable: Boolean(todo.linkedTaskId && !linkedTaskAvailable),
     linkedTaskAlreadyCompleted: Boolean(linkedTaskAvailable && task.status === 'completed'),
     creator: creator ? { id: String(creator._id), name: [creator.firstName, creator.lastName].filter(Boolean).join(' ') || creator.email } : null,
     completedBy: todo.completedBy ? String(todo.completedBy) : null,
     completedAt: todo.completedAt?.toISOString?.() || todo.completedAt || null,
-    daysPending: Math.max(0, Math.floor((todayDate.getTime() - originalDate.getTime()) / 86400000)),
+    planningOverdueDays: daysBetween(firstPlannedDate, comparisonDate),
+    daysPending: daysBetween(firstPlannedDate, comparisonDate),
+    taskOverdue: Boolean(linkedTaskAvailable && taskDeadline && task.status !== 'completed' && new Date(taskDeadline).getTime() < Date.now()),
+    dayOutcome, historicalOutcome: dayOutcome, currentStatus: todo.status,
     linkedTaskCompletionRequested: Boolean(todo.linkedTaskCompletionRequested),
     linkedTaskCompletionSucceeded: Boolean(todo.linkedTaskCompletionSucceeded),
     linkedTaskCompletedAt: todo.linkedTaskCompletedAt?.toISOString?.() || todo.linkedTaskCompletedAt || null,
@@ -79,8 +99,8 @@ async function accessibleProjectIds(req) {
   return new Set(ids.map(String));
 }
 
-async function visibleDto(req, todo) {
-  return toDto(todo, await accessibleProjectIds(req));
+async function visibleDto(req, todo, selectedDate = null) {
+  return toDto(todo, await accessibleProjectIds(req), selectedDate);
 }
 
 async function validateLinks(req, projectIdRaw, linkedTaskIdRaw) {
@@ -102,9 +122,13 @@ async function create(req, payload = {}) {
   if (!dayPattern.test(todoDate)) fail('todoDate must use YYYY-MM-DD');
   const priority = payload.priority || 'medium';
   if (!priorities.includes(priority)) fail('Invalid priority');
+  const now = new Date();
   return visibleDto(req, await repository.create({
     title, notes: payload.notes ? String(payload.notes).trim() : null, status: 'pending', priority, priorityRank: priorityRank[priority],
-    todoDate, deadline: parseDate(payload.deadline, 'deadline') ?? null, hasDeadline: Boolean(payload.deadline),
+    todoDate, firstPlannedDate: todoDate, currentPlannedDate: todoDate,
+    planningHistory: [{ plannedDate: todoDate, addedAt: now, source: linkedTaskId ? 'added_from_task' : 'created', statusAtDayEnd: 'pending' }],
+    carryForwardCount: 0, sourceType: linkedTaskId ? 'task' : 'personal',
+    deadline: parseDate(payload.deadline, 'deadline') ?? null, hasDeadline: Boolean(payload.deadline),
     reminderAt: parseDate(payload.reminderAt, 'reminderAt') ?? null,
     projectId, projectName, linkedTaskId, createdBy: req.v2Auth.accountId,
   }));
@@ -132,15 +156,23 @@ async function list(req, query = {}) {
   const page = Math.max(1, Number(query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(query.limit) || 50));
   const sort = sorts.includes(query.sort) ? query.sort : 'newest';
-  const [result, summaryResult] = await Promise.all([
+  const [result, reportItems, outstandingCandidates] = await Promise.all([
     repository.list(filters, { page, limit, sort }),
-    repository.summary({ ...filters, status: undefined, priority: undefined }),
+    repository.listForReport(filters.createdBy, filters.todoDate, filters.todoDate),
+    repository.listOutstandingOnDate(filters.createdBy, filters.todoDate),
   ]);
   const accessible = await accessibleProjectIds(req);
+  const daily = buildReport(reportItems, filters.todoDate, filters.todoDate);
+  const highPriority = reportItems.filter((todo) => todo.priority === 'high' && outcomeForDay(todo, filters.todoDate)?.statusAtDayEnd !== 'completed').length;
   return {
-    items: result.items.map((todo) => toDto(todo, accessible)),
+    items: result.items.map((todo) => toDto(todo, accessible, filters.todoDate)),
     pagination: { page, limit, total: result.total, pages: Math.ceil(result.total / limit) },
-    summary: { ...summaryResult, completionPercentage: summaryResult.total ? Math.round((summaryResult.completed / summaryResult.total) * 100) : 0 },
+    summary: {
+      total: daily.totalPlanned, completed: daily.completedWithinSameDay, pending: daily.pendingAtDayEnd,
+      highPriority, completionPercentage: daily.completionPercentage,
+      outstanding: outstandingCandidates.filter((todo) => isOutstandingOnDate(todo, filters.todoDate)).length,
+      movedForward: daily.carriedOutOfPeriod, report: daily,
+    },
   };
 }
 
@@ -164,7 +196,7 @@ async function update(req, id, payload = {}) {
   }
   if (payload.todoDate !== undefined) {
     if (!dayPattern.test(payload.todoDate)) fail('todoDate must use YYYY-MM-DD');
-    updates.todoDate = payload.todoDate;
+    if (payload.todoDate !== (existing.currentPlannedDate || existing.todoDate)) fail('Planned dates can only be changed with the move action');
   }
   if (payload.deadline !== undefined) { updates.deadline = parseDate(payload.deadline, 'deadline'); updates.hasDeadline = Boolean(payload.deadline); }
   if (payload.reminderAt !== undefined) updates.reminderAt = parseDate(payload.reminderAt, 'reminderAt');
@@ -176,15 +208,21 @@ async function update(req, id, payload = {}) {
     updates.projectId = links.projectId;
     updates.projectName = links.projectName;
     updates.linkedTaskId = links.projectId ? links.linkedTaskId : null;
+    updates.sourceType = updates.linkedTaskId ? 'task' : 'personal';
   }
   return visibleDto(req, await repository.update(existing._id, req.v2Auth.accountId, updates));
 }
 
 async function setCompletion(req, id, completed) {
   const existing = await getOwned(req, id);
-  return visibleDto(req, await repository.update(existing._id, req.v2Auth.accountId, completed
-    ? { status: 'completed', completedAt: new Date(), completedBy: req.v2Auth.accountId }
-    : { status: 'pending', completedAt: null, completedBy: null }));
+  if (completed && existing.status === 'completed') return visibleDto(req, existing);
+  if (!completed && existing.status === 'pending') return visibleDto(req, existing);
+  const now = new Date();
+  const plannedDate = existing.currentPlannedDate || existing.todoDate;
+  const saved = completed
+    ? await repository.complete(existing._id, req.v2Auth.accountId, { completedAt: now, completedBy: req.v2Auth.accountId, plannedDate: todayKey(now) })
+    : await repository.reopen(existing._id, req.v2Auth.accountId, { reopenedAt: now, reopenedBy: req.v2Auth.accountId, plannedDate });
+  return visibleDto(req, saved);
 }
 
 async function complete(req, id, completionMode = 'my_day_only') {
@@ -202,9 +240,10 @@ async function complete(req, id, completionMode = 'my_day_only') {
       await taskBoardService.completeTask(taskId, req.v2Auth.accountId, req);
       taskCompletedByRequest = true;
     }
-    const updated = await repository.update(existing._id, req.v2Auth.accountId, {
-      status: 'completed', completedAt: new Date(), completedBy: req.v2Auth.accountId,
-      linkedTaskCompletionRequested: true, linkedTaskCompletionSucceeded: true, linkedTaskCompletedAt: new Date(),
+    const completedAt = new Date();
+    const updated = await repository.complete(existing._id, req.v2Auth.accountId, {
+      completedAt, completedBy: req.v2Auth.accountId, plannedDate: todayKey(completedAt),
+      extra: { linkedTaskCompletionRequested: true, linkedTaskCompletionSucceeded: true, linkedTaskCompletedAt: completedAt },
     });
     if (!updated) throw new Error('Todo completion was not persisted');
     return visibleDto(req, updated);
@@ -222,19 +261,23 @@ async function remove(req, id) {
   return { deleted: true, id: String(existing._id) };
 }
 
-async function moveToToday(req, id, mode = 'move') {
+async function moveToToday(req, id) {
   const existing = await getOwned(req, id);
   if (existing.status !== 'pending') fail('Only pending todos can be moved or copied');
+  const destination = todayKey();
+  const fromDate = existing.currentPlannedDate || existing.todoDate;
+  if (fromDate === destination) return visibleDto(req, existing, destination);
+  if ((existing.planningHistory || []).some((entry) => entry.plannedDate === destination)) return visibleDto(req, existing, destination);
   const linkedTaskId = existing.linkedTaskId?._id || existing.linkedTaskId;
   if (linkedTaskId) {
-    const duplicate = await repository.findActiveLinked(req.v2Auth.accountId, linkedTaskId, todayKey());
+    const duplicate = await repository.findActiveLinked(req.v2Auth.accountId, linkedTaskId, destination);
     if (duplicate && String(duplicate._id) !== String(existing._id)) {
-      if (mode === 'move') await repository.softDelete(existing._id, req.v2Auth.accountId);
-      return visibleDto(req, duplicate);
+      const merged = await repository.mergeCarryForward(existing, duplicate, req.v2Auth.accountId, { fromDate, toDate: destination, movedAt: new Date(), movedBy: req.v2Auth.accountId });
+      return visibleDto(req, merged, destination);
     }
   }
-  if (mode === 'copy') return create(req, { ...toDto(existing), todoDate: todayKey() });
-  return visibleDto(req, await repository.update(existing._id, req.v2Auth.accountId, { todoDate: todayKey() }));
+  const moved = await repository.carryForward(existing._id, req.v2Auth.accountId, { fromDate, toDate: destination, movedAt: new Date(), movedBy: req.v2Auth.accountId });
+  return visibleDto(req, moved, destination);
 }
 
 async function outstanding(req, query = {}) {
@@ -242,14 +285,15 @@ async function outstanding(req, query = {}) {
   if (!dayPattern.test(date)) fail('date must use YYYY-MM-DD');
   const page = Math.max(1, Number(query.page) || 1);
   const limit = Math.min(100, Math.max(1, Number(query.limit) || 50));
-  const result = await repository.listOutstanding(req.v2Auth.accountId, date, { page, limit });
+  const candidates = await repository.listOutstandingOnDate(req.v2Auth.accountId, date);
+  const outstandingItems = candidates.filter((todo) => isOutstandingOnDate(todo, date));
+  const items = outstandingItems.slice((page - 1) * limit, page * limit);
   const accessible = await accessibleProjectIds(req);
-  return { items: result.items.map((todo) => toDto(todo, accessible)), pagination: { page, limit, total: result.total, pages: Math.ceil(result.total / limit) } };
+  return { items: items.map((todo) => toDto(todo, accessible, date)), pagination: { page, limit, total: outstandingItems.length, pages: Math.ceil(outstandingItems.length / limit) } };
 }
 
 async function moveAllOutstanding(req, query = {}) {
-  const date = query.date || todayKey();
-  if (!dayPattern.test(date)) fail('date must use YYYY-MM-DD');
+  const date = todayKey();
   const items = await repository.listAllOutstanding(req.v2Auth.accountId, date);
   const moved = [];
   for (const item of items) moved.push(await moveToToday(req, String(item._id), 'move'));
@@ -280,9 +324,12 @@ async function addTasks(req, payload = {}) {
     if (!assigned) fail('Only assigned tasks can be added to My Day', 403);
     const project = await assertCanAccessProjectForTasks(req, task.projectId);
     const priority = priorities.includes(task.priority) ? task.priority : (task.priority === 'urgent' ? 'high' : 'medium');
+    const now = new Date();
     const todo = await repository.upsertLinked({
       title: task.title, notes: task.description || null, status: 'pending', priority, priorityRank: priorityRank[priority],
-      todoDate, deadline: task.dueDate || null, hasDeadline: Boolean(task.dueDate), reminderAt: null,
+      todoDate, firstPlannedDate: todoDate, currentPlannedDate: todoDate,
+      planningHistory: [{ plannedDate: todoDate, addedAt: now, source: 'added_from_task', statusAtDayEnd: 'pending' }],
+      carryForwardCount: 0, sourceType: 'task', deadline: task.dueDate || null, hasDeadline: Boolean(task.dueDate), reminderAt: null,
       projectId: task.projectId, projectName: project?.name || '', linkedTaskId: task._id, createdBy: req.v2Auth.accountId,
     });
     results.push(await visibleDto(req, todo));
@@ -291,8 +338,20 @@ async function addTasks(req, payload = {}) {
 }
 
 async function summary(req, query = {}) {
-  const result = await repository.summary(listScope(req, query));
-  return { ...result, completionPercentage: result.total ? Math.round((result.completed / result.total) * 100) : 0 };
+  const scope = listScope(req, query);
+  const items = await repository.listForReport(scope.createdBy, scope.todoDate, scope.todoDate);
+  const outstandingItems = (await repository.listOutstandingOnDate(scope.createdBy, scope.todoDate)).filter((todo) => isOutstandingOnDate(todo, scope.todoDate));
+  const report = buildReport(items, scope.todoDate, scope.todoDate);
+  return { total: report.totalPlanned, completed: report.completedWithinSameDay, pending: report.pendingAtDayEnd, outstanding: outstandingItems.length, highPriority: items.filter((todo) => todo.priority === 'high' && outcomeForDay(todo, scope.todoDate)?.statusAtDayEnd !== 'completed').length, completionPercentage: report.completionPercentage, movedForward: report.carriedOutOfPeriod, report };
 }
 
-module.exports = { todayKey, cleanTitle, listScope, toDto, create, list, get, update, complete, reopen: (req, id) => setCompletion(req, id, false), remove, moveToToday, outstanding, moveAllOutstanding, availableTasks, addTasks, summary };
+async function report(req, query = {}) {
+  const period = ['daily', 'weekly', 'monthly'].includes(query.period) ? query.period : 'daily';
+  const anchorDate = query.date || todayKey();
+  if (!dayPattern.test(anchorDate)) fail('date must use YYYY-MM-DD');
+  const { startDate, endDate } = reportRange(period, anchorDate);
+  const items = await repository.listForReport(req.v2Auth.accountId, startDate, endDate);
+  return { period, ...buildReport(items, startDate, endDate) };
+}
+
+module.exports = { todayKey, cleanTitle, listScope, toDto, create, list, get, update, complete, reopen: (req, id) => setCompletion(req, id, false), remove, moveToToday, outstanding, moveAllOutstanding, availableTasks, addTasks, summary, report };

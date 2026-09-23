@@ -30,6 +30,10 @@ const listRules = [
   query('sort').optional().isIn(['priority', 'deadline', 'newest', 'oldest', 'project']),
   query('page').optional().isInt({ min: 1 }), query('limit').optional().isInt({ min: 1, max: 100 }),
 ];
+const reportRules = [
+  query('date').optional().matches(/^\d{4}-\d{2}-\d{2}$/),
+  query('period').optional().isIn(['daily', 'weekly', 'monthly']),
+];
 
 const availableTaskRules = [
   query('date').optional().matches(/^\d{4}-\d{2}-\d{2}$/),
@@ -47,4 +51,4 @@ const addTasksRules = [
 
 const completionRules = [idRule, body('completionMode').optional().isIn(['my_day_only', 'my_day_and_task'])];
 
-module.exports = { createRules, updateRules, listRules, availableTaskRules, addTasksRules, completionRules, idRules: [idRule] };
+module.exports = { createRules, updateRules, listRules, reportRules, availableTaskRules, addTasksRules, completionRules, idRules: [idRule] };
